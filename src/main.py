@@ -6,10 +6,7 @@
 # 	Description:  V5 project                                                   #
 #                                                                              #
 # ---------------------------------------------------------------------------- #
-#   (\__/)                                                                     #
-#   (='.'=)                                                                    #
-#   (")_(")                                                                    #
-#   / REMY \                                                                   #
+#   YumYum                                                                     #
 # ---------------------------------------------------------------------------- #
 
 # Library imports
@@ -23,66 +20,34 @@ controller_1 = Controller(PRIMARY)
 initialization_complete = False
 tests_running = False
 
-REMY = False
-EMILE = False
-ANTON = True
+left_front_motor = Motor(Ports.PORT13, GearSetting.RATIO_6_1, True)
+left_mid_motor = Motor(Ports.PORT12, GearSetting.RATIO_6_1, True)
+left_back_motor = Motor(Ports.PORT11, GearSetting.RATIO_6_1, True)
 
-if (REMY):
-    left_front_motor = Motor(Ports.PORT12, GearSetting.RATIO_6_1, True)
-    left_back_motor = Motor(Ports.PORT11, GearSetting.RATIO_6_1, True)
-    right_front_motor = Motor(Ports.PORT20, GearSetting.RATIO_6_1, False)
-    right_back_motor = Motor(Ports.PORT19, GearSetting.RATIO_6_1, False)
+right_front_motor = Motor(Ports.PORT18, GearSetting.RATIO_6_1, False)
+right_mid_motor = Motor(Ports.PORT19, GearSetting.RATIO_6_1, False)
+right_back_motor = Motor(Ports.PORT20, GearSetting.RATIO_6_1, False)
 
-    intake_motor = Motor(Ports.PORT9, GearSetting.RATIO_18_1, False)
-    conveyor_motor = Motor(Ports.PORT1, GearSetting.RATIO_18_1, False)
+ramp_motor = Motor(Ports.PORT9, GearSetting.RATIO_18_1, True)
+shooter_motor = Motor(Ports.PORT1, GearSetting.RATIO_18_1, False)
 
-    inertial_sensor = Inertial(Ports.PORT2)
-    gyro_scale = 360.0 / (360.0 + 4.5) # this is roughly how much robot over-turns per revolution
+inertial_sensor = Inertial(Ports.PORT2)
+gyro_scale = 360.0 / (360.0 + 0.0) # this is roughly how much robot over-turns per revolution
 
-    arm_solenoid = DigitalOut(brain.three_wire_port.a)
-    wedge_solenoid = DigitalOut(brain.three_wire_port.b)
+arm_solenoid = DigitalOut(brain.three_wire_port.h)
+ramp_solenoid = DigitalOut(brain.three_wire_port.g)
 
-elif (EMILE): # Emile
-    left_front_motor = Motor(Ports.PORT2, GearSetting.RATIO_6_1, True)
-    left_back_motor = Motor(Ports.PORT4, GearSetting.RATIO_6_1, True)
-    right_front_motor = Motor(Ports.PORT1, GearSetting.RATIO_6_1, False)
-    right_back_motor = Motor(Ports.PORT3, GearSetting.RATIO_6_1, False)
-
-    intake_motor = Motor(Ports.PORT11, GearSetting.RATIO_18_1, True)
-    conveyor_motor = Motor(Ports.PORT12, GearSetting.RATIO_18_1, False)
-
-    inertial_sensor = Inertial(Ports.PORT10)
-    gyro_scale = 360.0 / (360.0 + 4.5) # this is roughly how much robot over-turns per revolution
-
-elif (ANTON):
-    left_front_motor = Motor(Ports.PORT12, GearSetting.RATIO_6_1, True)
-    left_back_motor = Motor(Ports.PORT11, GearSetting.RATIO_6_1, True)
-    right_front_motor = Motor(Ports.PORT20, GearSetting.RATIO_6_1, False)
-    right_back_motor = Motor(Ports.PORT19, GearSetting.RATIO_6_1, False)
-
-    intake_motor = Motor(Ports.PORT9, GearSetting.RATIO_18_1, False)
-    conveyor_motor = Motor(Ports.PORT1, GearSetting.RATIO_18_1, False)
-
-    ramp_motor = intake_motor
-    shooter_motor = conveyor_motor
-
-    inertial_sensor = Inertial(Ports.PORT2)
-    gyro_scale = 360.0 / (360.0 + 4.5) # this is roughly how much robot over-turns per revolution
-
-    arm_solenoid = DigitalOut(brain.three_wire_port.h)
-    wedge_solenoid = DigitalOut(brain.three_wire_port.g)
-
-    color1 = Optical(Ports.PORT6)
-    color2 = Optical(Ports.PORT7)
+color1 = Optical(Ports.PORT6)
+color2 = Optical(Ports.PORT7)
 
 # vex helper constructs
-left_motor_group = MotorGroup(left_front_motor, left_back_motor)
-right_motor_group = MotorGroup(right_front_motor, right_back_motor)
+left_motor_group = MotorGroup(left_front_motor, left_mid_motor, left_back_motor)
+right_motor_group = MotorGroup(right_front_motor, right_mid_motor, right_back_motor)
 drivetrain = SmartDrive(left_motor_group, right_motor_group, inertial_sensor, 260, 320, 320, DistanceUnits.MM, 24/60)
 
 # Monitor Monitoring
 class MotorMonitor:
-    global left_front_motor, left_back_motor, right_front_motor, right_back_motor, intake_motor, conveyor_motor
+    global left_front_motor, left_mid_motor, left_back_motor, right_front_motor, right_mid_motor, right_back_motor, ramp_motor, shooter_motor
 
     # motors will slow down above certain temperatures
     # vex defines warm as 50 percent and hot as 70 percent
@@ -97,9 +62,18 @@ class MotorMonitor:
     MOTOR_STATUS_HOT = 4
 
     def __init__(self):
-        self.allmotors = [left_front_motor, left_back_motor, right_front_motor, right_back_motor, intake_motor, conveyor_motor]
-        self.motor_names = ["Left Front", "Left Back", "Right Front", "Right Back", "Intake", "Conveyor"]
-        self.motor_status = [MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK]
+        self.allmotors = [
+            left_front_motor, left_mid_motor, left_back_motor,
+            right_front_motor, right_mid_motor, right_back_motor,
+            ramp_motor, shooter_motor]
+        self.motor_names = [
+            "Left Front", "Left Mid", "Left Back",
+            "Right Front", "Right Mid", "Right Back",
+            "Ramp", "Shooter"]
+        self.motor_status = [
+            MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK,
+            MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK,
+            MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK]
         self.previous_motor_status = self.motor_status.copy()
         self.motor_status_names = ["OK", "NOT PRESENT", "OK FOR NOW", "WARM", "HOT"]
 
@@ -225,8 +199,8 @@ def pre_autonomous():
     tracker_thread = Thread(Tracking.tracker_thread)
     wait(0.1, SECONDS)
 
-    print("a piston: ", wedge_solenoid.value())
-    print("b piston: ", wedge_solenoid.value())
+    print("a piston: ", arm_solenoid.value())
+    print("b piston: ", ramp_solenoid.value())
 
     initialization_complete = True
 
@@ -298,7 +272,7 @@ class MedianFilter3:
 
 class DriverControl:
     # Constants for ramp control
-    MAX_CONTROL_RAMP = 5 # percent per timestep (assumed to be 10ms)
+    MAX_CONTROL_RAMP = 4 # percent per timestep (assumed to be 10ms)
     
     # Constants to convert percent to volt for drivetrain
     MOTOR_MAXVOLT = 11.5 # volts
@@ -478,104 +452,137 @@ class DriverControl:
 # Negative values are the "eject" or "down" direction
 # Note the small delay when reversing direction. Given the mass of the intake wheels it will act as a flywheel
 #  and can potentially damage the motors if we reverse direction too quickly
-intake_speed = 0
-conveyor_speed = 0
+ramp_speed = 0
+shooter_speed = 0
 
-# DEX design using up gearing by 60T:36T for intake rollers. This seems to be too much for flex wheels design and
-#  seems to jam the intake. Compensation of 36/60 would match a non geared design if it works
-if REMY:
-    INTAKE_MAX_INTAKE = 0.75 * 100 * 36 / 60
-    INTAKE_MAX_EJECT = 100 * 36 / 60
-else:
-    INTAKE_MAX_INTAKE = 100
-    INTAKE_MAX_EJECT = 100
+RAMP_MAX_INTAKE = 100
+RAMP_MAX_EJECT = -100
 
-CONVEYOR_MAX_UP = 100
-CONVEYOR_MAX_DOWN = 100
+SHOOTER_MAX_UP = 100
+SHOOTER_MAX_DOWN = -100
 
 # individual control functions
 def run_intake(bIntake):
-    global intake_speed
-    if (intake_speed != 0):
+    global ramp_speed
+    if ((bIntake and ramp_speed == RAMP_MAX_EJECT) or (not bIntake and ramp_speed == RAMP_MAX_INTAKE)):
+        print("reversing intake")
         stop_intake()
         wait(0.1, SECONDS) # wait for intake to slow before reversing direction
-    if bIntake: intake_speed = INTAKE_MAX_INTAKE
-    else: intake_speed = -INTAKE_MAX_EJECT
-    intake_motor.spin(REVERSE, intake_speed, PERCENT)
+    if bIntake: ramp_speed = RAMP_MAX_INTAKE
+    else: ramp_speed = RAMP_MAX_EJECT
+    ramp_motor.spin(REVERSE, ramp_speed, PERCENT)
 
 def stop_intake():
-    global intake_speed
-    intake_speed = 0
-    intake_motor.stop(COAST)
+    global ramp_speed
+    ramp_speed = 0
+    ramp_motor.stop(COAST)
 
-def run_conveyor(bUp):
-    global conveyor_speed
-    if (conveyor_speed != 0):
-        stop_conveyor()
+def run_shooter(bUp):
+    global shooter_speed
+    if (shooter_speed != 0):
+        stop_shooter()
         wait(0.1, SECONDS) # wait for conveyor to slow before reversing direction
-    if bUp: conveyor_speed = CONVEYOR_MAX_UP
-    else: conveyor_speed = -CONVEYOR_MAX_DOWN
-    conveyor_motor.spin(FORWARD, conveyor_speed, PERCENT)
+    if bUp: shooter_speed = SHOOTER_MAX_UP
+    else: shooter_speed = SHOOTER_MAX_DOWN
+    shooter_motor.spin(FORWARD, shooter_speed, PERCENT)
 
-def stop_conveyor():
-    global conveyor_speed
-    conveyor_speed = 0
-    conveyor_motor.stop(COAST)
+def stop_shooter():
+    global shooter_speed
+    shooter_speed = 0
+    shooter_motor.stop(COAST)
+
+def open_trapdoor():
+    ramp_solenoid.set(1)
+
+def close_trapdoor():
+    ramp_solenoid.set(0)
+
+def trapdoor_is_open():
+    return ramp_solenoid.value() == 1
 
 # Controller mapping - note there are two control modes:
 # - individual control uses all for bumpers L1, L2, R1, R2 and controls intake and conveyor independently
 # - linked control only uses top bumpers
-control_mode = 0 # 0 is individual control, 1 is linked control
+control_mode = 1 # 0 is individual control, 1 is linked control
 
 # Intake
 def OnButtonR1Pressed():
+    close_trapdoor()
     if control_mode == 0:
-        if intake_speed == 0: run_intake(True)
+        if ramp_speed == 0: run_intake(True)
         else: stop_intake()
     else:
-        if intake_speed == 0:
-            run_intake(False)
-            run_conveyor(False)
-        elif intake_speed < 0:
+        stop_shooter()
+        if ramp_speed == 0:
+            run_intake(True)
+        elif ramp_speed == RAMP_MAX_INTAKE:
             stop_intake()
-            stop_conveyor()
-        elif intake_speed > 0:
+        elif ramp_speed == RAMP_MAX_EJECT:
             stop_intake()
-            stop_conveyor()
             wait(0.1, SECONDS)
-            run_intake(False)
-            run_conveyor(False)
+            run_intake(True)
 
 # Eject
 def OnButtonR2Pressed():
+    close_trapdoor()
     if control_mode == 0:
-        if intake_speed == 0: run_intake(False)
+        if ramp_speed == 0: run_intake(False)
         else: stop_intake()
-
-# Conveyor Up
-def OnButtonL1Pressed():
-    if control_mode == 0:
-        if (conveyor_speed == 0): run_conveyor(True)
-        else: stop_conveyor()
     else:
-        if intake_speed == 0:
+        stop_shooter()
+        if ramp_speed == 0:
+            run_intake(False)
+        elif ramp_speed < 0:
+            stop_intake()
+        elif ramp_speed > 0:
+            stop_intake()
+            wait(0.1, SECONDS)
+            run_intake(False)
+
+
+# Score
+def OnButtonL1Pressed():
+    close_trapdoor()
+    if control_mode == 0:
+        if (shooter_speed == 0): run_shooter(True)
+        else: stop_shooter()
+    else:
+        if ramp_speed == 0:
             run_intake(True)
-            run_conveyor(True)
-        elif intake_speed > 0:
+            run_shooter(True)
+        elif ramp_speed == RAMP_MAX_INTAKE and shooter_speed != 0:
             stop_intake()
-            stop_conveyor()
-        elif intake_speed < 0:
+            stop_shooter()
+        elif ramp_speed == RAMP_MAX_INTAKE and shooter_speed == 0:
+            run_intake(True)
+            run_shooter(True)
+        elif ramp_speed == RAMP_MAX_EJECT:
             stop_intake()
-            stop_conveyor()
             wait(0.1, SECONDS)
             run_intake(True)
-            run_conveyor(True)
+            run_shooter(True)
 
-# Conveyor Down
+# Mid level score
 def OnButtonL2Pressed():
     if control_mode == 0:
-        if (conveyor_speed == 0): run_conveyor(False)
-        else: stop_conveyor()
+        if (shooter_speed == 0): run_shooter(False)
+        else: stop_shooter()
+    else:
+        stop_shooter()
+        if (ramp_speed == 0):
+            open_trapdoor()
+            run_intake(True)
+        elif (ramp_speed == RAMP_MAX_INTAKE):
+            if (not trapdoor_is_open()):
+                open_trapdoor()
+            else:
+                stop_intake()
+                close_trapdoor()
+        elif ramp_speed == RAMP_MAX_EJECT:
+            open_trapdoor()
+            stop_intake()
+            wait(0.1, SECONDS)
+            run_intake(True)
 
 # Drive straight enable / disable
 ENABLE_DRIVE_STRAIGHT = False
@@ -593,10 +600,10 @@ def OnButtonAPressed():
 
 # Wedge solenoid toggle
 def OnButtonBPressed():
-    if (wedge_solenoid.value() == 0):
-        wedge_solenoid.set(1)
+    if (ramp_solenoid.value() == 0):
+        ramp_solenoid.set(1)
     else:
-        wedge_solenoid.set(0)
+        ramp_solenoid.set(0)
 
 def detect_blue(sensor):
     if not sensor.is_near_object():
@@ -606,6 +613,7 @@ def detect_blue(sensor):
         return True
     return False
 
+color_sort_enable = False
 color_sort_valid = False
 color_sort_valid_count = 0
 color_sort_shooter_speed = 0
@@ -614,8 +622,8 @@ def color_sort():
     global color_sort_valid, color_sort_valid_count, color_sort_shooter_speed
     if detect_blue(color1) or detect_blue(color2):
         if not color_sort_valid:
-            wedge_solenoid.set(1)
-            color_sort_shooter_speed = conveyor_speed
+            ramp_solenoid.set(1)
+            color_sort_shooter_speed = shooter_speed
             shooter_motor.stop(COAST)
             print("Blue detected")
         color_sort_valid = True
@@ -625,10 +633,17 @@ def color_sort():
         if color_sort_valid_count < 40:
             color_sort_valid_count += 1
         else:
-            wedge_solenoid.set(0)
+            ramp_solenoid.set(0)
             shooter_motor.spin(FORWARD, color_sort_shooter_speed, PERCENT)
             color_sort_valid = False
             print("Blue lost")
+
+def OnButtonXPressed():
+    global color_sort_enable
+    if color_sort_enable:
+        color_sort_enable = False
+    else:
+        color_sort_enable = True
 
 def user_control():
     # wait for initialization code
@@ -647,6 +662,7 @@ def user_control():
     controller_1.buttonUp.pressed(OnButtonUpPressed) # Enable / disable drive straight
     controller_1.buttonA.pressed(OnButtonAPressed) # Toggle arm solenoid
     controller_1.buttonB.pressed(OnButtonBPressed) # Toggle wedge solenoid
+    controller_1.buttonX.pressed(OnButtonXPressed) # Toggle color sort
 
     # drivetrain control
     driver_control = DriverControl(left_motor_group, right_motor_group, inertial_sensor, gyro_scale)
@@ -654,7 +670,7 @@ def user_control():
     # place driver control in this while loop
     while True:
         driver_control.user_drivetrain(controller_1.axis3.position(), controller_1.axis1.position(), ENABLE_DRIVE_STRAIGHT)
-        if conveyor_speed != 0:
+        if color_sort_enable and shooter_speed != 0:
             color_sort()
         wait(10, MSEC) # DO NOT CHANGE
 

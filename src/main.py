@@ -146,6 +146,7 @@ class Tracking:
     def __init__(self, x, y, heading):
         self.x = x # meters NORTH
         self.y = y # meters EAST
+        # heading is assumed to be a raw inertial sensor reading for initialization
         # heading passed in as degrees 0 to 360. Converted to continuous radians
         # theta is our internal heading in radians
         self.theta = self.reduce_neg180_to_180(radians(heading)) / GYRO_SCALE # continuous radians
@@ -181,6 +182,8 @@ class Tracking:
     def calc_timestep_arc_chord(self, x, y, theta, delta_forward, delta_side, delta_theta):
         # x, y, delta_forward, delta_side in meters
         # theta, delta_theta in radians
+
+        # local deltas
         if (delta_theta == 0.0):
             delta_local_x = delta_forward
             delta_local_y = delta_side
@@ -260,6 +263,7 @@ def pre_autonomous():
 
     initialization_complete = True
 
+# dummy auton - drive forward 6 inches
 def autonomous():
     # wait for initialization code
     while (not initialization_complete or tests_running):
@@ -276,16 +280,16 @@ def autonomous():
 
     # place automonous code here 
     # gear ratio over circum
-    # Circumfrence pi*3.25"
-    # for each rev of the motor mutliply by the grear ratio times circumfrence
+    # Circumfrence pi * 3.25
+    # for each rev of the motor mutliply by the gear ratio times circumfrence
     
     wait(1,SECONDS)
-    gear_ratio=24/60 
-    wheel_circumfrence=3.25*pi
-    distance_per_rev=gear_ratio*wheel_circumfrence #this is going to be in inches
+    gear_ratio = 36 / 48
+    wheel_circumfrence = 3.25 * pi
+    distance_per_rev = gear_ratio*wheel_circumfrence #this is going to be in inches
     
-    left_motor_group.spin_for(FORWARD,6/distance_per_rev,RotationUnits.REV,25,PERCENT,wait=False)
-    right_motor_group.spin_for(FORWARD,6/distance_per_rev,RotationUnits.REV,25,PERCENT,wait=False)
+    left_motor_group.spin_for(FORWARD, 6 / distance_per_rev, RotationUnits.REV, 25, PERCENT, wait=False)
+    right_motor_group.spin_for(FORWARD, 6 / distance_per_rev,R otationUnits.REV, 25, PERCENT, wait=False)
     wait(1,SECONDS)
 
     left_motor_group.stop(COAST)
@@ -502,7 +506,7 @@ class DriverControl:
         if self.drivetrain_running:
             self.rmg.spin(FORWARD, drivetrain_right_side_speed * DriverControl.MOTOR_VOLTSCALE, VOLT) # type: ignore
 
-## INTAKE AND CONVEYOR CONTROL ##
+## INTAKE/RAMP AND SHOOTER CONTROL ##
 
 # We treat positive values as the"intake" or "up" direction for both intake and conveyor
 # Negative values are the "eject" or "down" direction
@@ -557,8 +561,13 @@ def trapdoor_is_open():
     return ramp_solenoid.value() == 1
 
 # Controller mapping - note there are two control modes:
-# - individual control uses all for bumpers L1, L2, R1, R2 and controls intake and conveyor independently
-# - linked control only uses top bumpers
+# - individual control uses all four bumpers L1, L2, R1, R2 and controls intake and shooter independently
+# - linked control mapped as follors:
+#   - R1: intake
+#   - R2: eject
+#   - L1: long goal score (intake + shooter)
+#   - L2: mid-level goal score (intake + trapdoor open)
+# All buttons are toggles in both modes
 control_mode = 1 # 0 is individual control, 1 is linked control
 
 # Intake
@@ -669,6 +678,7 @@ def detect_blue(sensor):
         return True
     return False
 
+# Expermimental color sort function - only scores red right now (rejects blue)
 color_sort_enable = False
 color_sort_valid = False
 color_sort_valid_count = 0
@@ -713,11 +723,11 @@ def user_control():
     # events
     controller_1.buttonR1.pressed(OnButtonR1Pressed) # Intake
     controller_1.buttonR2.pressed(OnButtonR2Pressed) # Eject
-    controller_1.buttonL1.pressed(OnButtonL1Pressed) # Conveyor Up
-    controller_1.buttonL2.pressed(OnButtonL2Pressed) # Conveyor Down
-    controller_1.buttonUp.pressed(OnButtonUpPressed) # Enable / disable drive straight
+    controller_1.buttonL1.pressed(OnButtonL1Pressed) # Shooter On or Long Goal Score
+    controller_1.buttonL2.pressed(OnButtonL2Pressed) # Shooter Reverse or Mid Level Goal Score
+    controller_1.buttonUp.pressed(OnButtonUpPressed) # Enable / disable drive straight - DEMO ONLY
     controller_1.buttonA.pressed(OnButtonAPressed) # Toggle arm solenoid
-    controller_1.buttonB.pressed(OnButtonBPressed) # Toggle wedge solenoid
+    controller_1.buttonB.pressed(OnButtonBPressed) # Toggle trapdoor solenoid
     controller_1.buttonX.pressed(OnButtonXPressed) # Toggle color sort
 
     # drivetrain control

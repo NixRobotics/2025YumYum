@@ -11,7 +11,7 @@
 
 # Library imports
 from vex import *
-from math import pi
+from math import pi, cos, sin, radians, degrees
 
 # declare devices
 brain = Brain()
@@ -32,7 +32,7 @@ ramp_motor = Motor(Ports.PORT9, GearSetting.RATIO_18_1, True)
 shooter_motor = Motor(Ports.PORT1, GearSetting.RATIO_18_1, False)
 
 inertial_sensor = Inertial(Ports.PORT2)
-gyro_scale = 360.0 / (360.0 + 0.0) # this is roughly how much robot over-turns per revolution
+GYRO_SCALE = 360.0 / (360.0 + 0.0) # this is roughly how much robot over-turns per revolution
 
 arm_solenoid = DigitalOut(brain.three_wire_port.h)
 ramp_solenoid = DigitalOut(brain.three_wire_port.g)
@@ -141,39 +141,95 @@ class Tracking:
     global inertial_sensor, left_motor_group, right_motor_group
 
     GEAR_RATIO = 24.0 / 60.0 # external gear ratio
-    WHEEL_SIZE = 260.0 # mm
+    WHEEL_SIZE = 0.260 # m
 
     def __init__(self, x, y, heading):
-        self.x = x
-        self.y = y
-        self.heading = heading
+        self.x = x # meters NORTH
+        self.y = y # meters EAST
+        # heading passed in as degrees 0 to 360. Converted to continuous radians
+        # theta is our internal heading in radians
+        self.theta = self.reduce_neg180_to_180(radians(heading)) / GYRO_SCALE # continuous radians
+        self.timestep = 0.01 # seconds
 
+        # only using motor encoders
         self.D = Tracking.WHEEL_SIZE
 
-        self.previous_left_position = 0.0
-        self.previous_right_position = 0.0
+        self.previous_left_position = 0.0 # revolutions
+        self.previous_right_position = 0.0 # revolutions
+        self.previous_theta = 0.0 # radians
 
-    def update_location(self, left_position, right_position):
+    # helper function for converting angles
+    def reduce_neg180_to_180(self, angle):
+        while (angle > 180.0):
+            angle -= 360.0
+        while (angle <= -180.0):
+            angle += 360.0
+        return angle
+
+    def reduce_zero_to_360(self, angle):
+        while (angle >= 360.0):
+            angle -= 360.0
+        while (angle < 0.0):
+            angle += 360.0
+        return angle
+    
+    # heading in degrees 0 to 360
+    def heading(self):
+        heading_deg = degrees(self.theta)
+        return self.reduce_zero_to_360(heading_deg)
+
+    def calc_timestep_arc_chord(self, x, y, theta, delta_forward, delta_side, delta_theta):
+        # x, y, delta_forward, delta_side in meters
+        # theta, delta_theta in radians
+        if (delta_theta == 0.0):
+            delta_local_x = delta_forward
+            delta_local_y = delta_side
+            rotation_angle = theta
+        else:
+            r_linear = (delta_forward / delta_theta) # m
+            r_strafe = (delta_side / delta_theta) # m
+
+            # use half angle
+            rotation_angle = theta + delta_theta / 2
+            delta_local_x = r_linear * 2.0 * sin(delta_theta / 2.0)
+            delta_local_y = r_strafe * 2.0 * sin(delta_theta / 2.0)
+
+        # rotate to global
+        delta_global_x = delta_local_x * cos(rotation_angle) - delta_local_y * sin(rotation_angle)
+        delta_global_y = delta_local_x * sin(rotation_angle) + delta_local_y * cos(rotation_angle)
+
+        return (x + delta_global_x, y + delta_global_y, theta + delta_theta)
+
+    def update_location(self, left_position, right_position, theta):
         left_position *= Tracking.GEAR_RATIO
         right_position *= Tracking.GEAR_RATIO
 
         delta_left = left_position - self.previous_left_position
         delta_right = right_position - self.previous_right_position
+        delta_theta = theta - self.previous_theta
 
         delta_forward = self.D * (delta_left + delta_right) / 2.0
+        delta_side = 0.0 # no side encoder
 
-        self.x += delta_forward
+        self.x, self.y, self.theta = self.calc_timestep_arc_chord(self.x, self.y, self.theta, delta_forward, delta_side, delta_theta)
 
         self.previous_left_position = left_position
         self.previous_right_position = right_position
+        self.previous_theta = theta
+
+    def gyro_rotation(self, sensor):
+        return radians(sensor.rotation() / GYRO_SCALE)
 
     @staticmethod
     def tracker_thread():
         # print(args)
-        tracker = Tracking(0, 0, 0)
+        tracker = Tracking(0, 0, inertial_sensor.heading())
+        loop_count = 0
         while(True):
-            tracker.update_location(left_motor_group.position(RotationUnits.REV), right_motor_group.position(RotationUnits.REV))
-            wait(10, TimeUnits.MSEC)
+            tracker.update_location(left_motor_group.position(RotationUnits.REV), right_motor_group.position(RotationUnits.REV), tracker.gyro_rotation(inertial_sensor))
+            #if (loop_count % 100 == 0):
+            #    print("X: {:.2f} m, Y: {:.2f} m, Heading: {:.2f} deg".format(tracker.x, tracker.y, tracker.heading()))
+            loop_count += 1
 
 def pre_autonomous():
     global initialization_complete
@@ -665,7 +721,7 @@ def user_control():
     controller_1.buttonX.pressed(OnButtonXPressed) # Toggle color sort
 
     # drivetrain control
-    driver_control = DriverControl(left_motor_group, right_motor_group, inertial_sensor, gyro_scale)
+    driver_control = DriverControl(left_motor_group, right_motor_group, inertial_sensor, GYRO_SCALE)
 
     # place driver control in this while loop
     while True:

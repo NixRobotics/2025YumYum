@@ -140,8 +140,14 @@ class MotorMonitor:
 class Tracking:
     global inertial_sensor, left_motor_group, right_motor_group
 
+    # Tracking wheel geometry
+    # In this case we are just uising morot encoders and gyro, however same concept works for odometry wheels
     GEAR_RATIO = 24.0 / 60.0 # external gear ratio
     WHEEL_SIZE = 0.260 # m
+    # FWD_OFFSET is the distance from the robot center to the forward tracking wheel, right is positive
+    FWD_OFFSET = 0.0 # m
+    # SIDE_OFFSET is the distance from the robot center to the side tracking wheel, forward is positive
+    SIDE_OFFSET = 0.0 # m
 
     def __init__(self, x, y, heading):
         self.x = x # meters NORTH
@@ -149,35 +155,36 @@ class Tracking:
         # heading is assumed to be a raw inertial sensor reading for initialization
         # heading passed in as degrees 0 to 360. Converted to continuous radians
         # theta is our internal heading in radians
-        self.theta = self.reduce_neg180_to_180(radians(heading)) / GYRO_SCALE # continuous radians
+        self.theta = self.to_angle(radians(heading)) / GYRO_SCALE # continuous radians
         self.timestep = 0.01 # seconds
-
-        # only using motor encoders
-        self.D = Tracking.WHEEL_SIZE
 
         self.previous_left_position = 0.0 # revolutions
         self.previous_right_position = 0.0 # revolutions
         self.previous_theta = 0.0 # radians
 
     # helper function for converting angles
-    def reduce_neg180_to_180(self, angle):
+    # mimics inertial.angle() producing result in range (-180, 180])
+    # note: degrees in and out
+    def to_angle(self, angle):
         while (angle > 180.0):
             angle -= 360.0
         while (angle <= -180.0):
             angle += 360.0
         return angle
 
-    def reduce_zero_to_360(self, angle):
+    # mimics inertial.heading() producing result in range [0, 360)
+    # note: degrees in and out
+    def to_heading(self, angle):
         while (angle >= 360.0):
             angle -= 360.0
         while (angle < 0.0):
             angle += 360.0
         return angle
     
-    # heading in degrees 0 to 360
-    def heading(self):
+    # returns internal theta (radians) to degrees heading [0, 360)
+    def current_heading(self):
         heading_deg = degrees(self.theta)
-        return self.reduce_zero_to_360(heading_deg)
+        return self.to_heading(heading_deg)
 
     def calc_timestep_arc_chord(self, x, y, theta, delta_forward, delta_side, delta_theta):
         # x, y, delta_forward, delta_side in meters
@@ -185,21 +192,26 @@ class Tracking:
 
         # local deltas
         if (delta_theta == 0.0):
+            # no turn - use simple deltas
             delta_local_x = delta_forward
             delta_local_y = delta_side
-            rotation_angle = theta
+            to_global_rotation_angle = theta
         else:
-            r_linear = (delta_forward / delta_theta) # m
-            r_strafe = (delta_side / delta_theta) # m
+            # robot turning
+            # calculate radius of movement for forward and side wheels
+            r_linear = Tracking.FWD_OFFSET + (delta_forward / delta_theta) # m
+            r_strafe = Tracking.SIDE_OFFSET + (delta_side / delta_theta) # m
 
-            # use half angle
-            rotation_angle = theta + delta_theta / 2
+            # calculate chord distances using chord length = 2 * r * sin(theta / 2)
+            # pre-rotate by half the turn angle so we have only distance along one axis for each
+            # when we rotate to global frame we need to account for this half-angle rotation
+            to_global_rotation_angle = theta + delta_theta / 2
             delta_local_x = r_linear * 2.0 * sin(delta_theta / 2.0)
             delta_local_y = r_strafe * 2.0 * sin(delta_theta / 2.0)
 
         # rotate to global
-        delta_global_x = delta_local_x * cos(rotation_angle) - delta_local_y * sin(rotation_angle)
-        delta_global_y = delta_local_x * sin(rotation_angle) + delta_local_y * cos(rotation_angle)
+        delta_global_x = delta_local_x * cos(to_global_rotation_angle) - delta_local_y * sin(to_global_rotation_angle)
+        delta_global_y = delta_local_x * sin(to_global_rotation_angle) + delta_local_y * cos(to_global_rotation_angle)
 
         return (x + delta_global_x, y + delta_global_y, theta + delta_theta)
 
@@ -211,7 +223,7 @@ class Tracking:
         delta_right = right_position - self.previous_right_position
         delta_theta = theta - self.previous_theta
 
-        delta_forward = self.D * (delta_left + delta_right) / 2.0
+        delta_forward = Tracking.WHEEL_SIZE * (delta_left + delta_right) / 2.0
         delta_side = 0.0 # no side encoder
 
         self.x, self.y, self.theta = self.calc_timestep_arc_chord(self.x, self.y, self.theta, delta_forward, delta_side, delta_theta)
@@ -263,7 +275,6 @@ def pre_autonomous():
 
     initialization_complete = True
 
-# dummy auton - drive forward 6 inches
 def autonomous():
     # wait for initialization code
     while (not initialization_complete or tests_running):
@@ -277,20 +288,6 @@ def autonomous():
         brain.screen.print("GYRO OK")
     else:
         brain.screen.print("GYRO MISSING")
-
-    # place automonous code here 
-    # gear ratio over circum
-    # Circumfrence pi * 3.25
-    # for each rev of the motor mutliply by the gear ratio times circumfrence
-    
-    wait(1,SECONDS)
-    gear_ratio = 36 / 48
-    wheel_circumfrence = 3.25 * pi
-    distance_per_rev = gear_ratio*wheel_circumfrence #this is going to be in inches
-    
-    left_motor_group.spin_for(FORWARD, 6 / distance_per_rev, RotationUnits.REV, 25, PERCENT, wait=False)
-    right_motor_group.spin_for(FORWARD, 6 / distance_per_rev,R otationUnits.REV, 25, PERCENT, wait=False)
-    wait(1,SECONDS)
 
     left_motor_group.stop(COAST)
     right_motor_group.stop(COAST)

@@ -166,19 +166,15 @@ class Tracking:
     # mimics inertial.angle() producing result in range (-180, 180])
     # note: degrees in and out
     def to_angle(self, angle):
-        while (angle > 180.0):
+        angle = angle % 360.0
+        if (angle > 180.0):
             angle -= 360.0
-        while (angle <= -180.0):
-            angle += 360.0
         return angle
 
     # mimics inertial.heading() producing result in range [0, 360)
     # note: degrees in and out
     def to_heading(self, angle):
-        while (angle >= 360.0):
-            angle -= 360.0
-        while (angle < 0.0):
-            angle += 360.0
+        angle = angle % 360.0
         return angle
     
     # returns internal theta (radians) to degrees heading [0, 360)

@@ -479,8 +479,8 @@ class DriverControl:
             # check if the motors have already been stopped
             if self.drivetrain_running:
                 # stop the drive motors
-                self.lmg.stop()
-                self.rmg.stop()
+                self.lmg.stop(COAST)
+                self.rmg.stop(COAST)
                 # tell the code that the motors have been stopped
                 self.drivetrain_running = False
         else:

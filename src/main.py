@@ -239,6 +239,7 @@ class Tracking:
             #if (loop_count % 100 == 0):
             #    print("X: {:.2f} m, Y: {:.2f} m, Heading: {:.2f} deg".format(tracker.x, tracker.y, tracker.heading()))
             loop_count += 1
+            wait(tracker.timestep, SECONDS)
 
 def pre_autonomous():
     global initialization_complete

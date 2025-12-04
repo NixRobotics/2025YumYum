@@ -251,9 +251,6 @@ def pre_autonomous():
     brain.screen.clear_screen()
     brain.screen.print("pre auton code")
 
-    color1.set_light_power(100, PERCENT)
-    color2.set_light_power(100, PERCENT)
-
     # calibrate the inertial sensor
     if (inertial_sensor.installed):
         inertial_sensor.calibrate()
@@ -666,7 +663,7 @@ def detect_blue(sensor):
     if not sensor.is_near_object():
         return False
     hue = sensor.hue()
-    if hue > 200 and hue < 220:
+    if hue > 200 and hue < 230:
         return True
     return False
 
@@ -688,7 +685,7 @@ def color_sort():
         color_sort_valid_count = 0
 
     elif color_sort_valid:
-        if color_sort_valid_count < 40:
+        if color_sort_valid_count < 15:
             color_sort_valid_count += 1
         else:
             ramp_solenoid.set(0)
@@ -699,8 +696,14 @@ def color_sort():
 def OnButtonXPressed():
     global color_sort_enable
     if color_sort_enable:
+        print("color sort on")
+        color1.set_light_power(0, PERCENT)
+        color2.set_light_power(0, PERCENT)
         color_sort_enable = False
     else:
+        print("color sort off")
+        color1.set_light_power(100, PERCENT)
+        color2.set_light_power(100, PERCENT)
         color_sort_enable = True
 
 def user_control():

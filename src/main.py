@@ -477,6 +477,38 @@ def auto4_drive_to_points(tracker: Tracking):
     wait(0.1, SECONDS)
     print_tracker(tracker, x_near, y_mid_left)
 
+def auton5(tracker: Tracking):
+    print("auton5")
+
+    drive_speed = 50 # PERCENT
+    turn_speed = 40 # PERCENT
+    linear_speed_mm_sec, turn_speed_rev_sec = drivetrain_max_speeds(600, DRIVETRAIN_WHEEL_SIZE, DRIVETRAIN_GEAR_RATIO)
+    linear_speed_mm_sec *= (drive_speed / 100)
+    turn_speed_rev_sec *= (turn_speed / 100)
+
+    drivetrain.set_drive_velocity(drive_speed, PERCENT)
+    drivetrain.set_drive_accleration(3, PERCENT)
+    drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
+    drivetrain.set_drive_threshold(5) # MM
+
+    drivetrain.set_turn_velocity(turn_speed, PERCENT)
+    drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
+    drivetrain.set_turn_threshold(1) # DEGREES
+
+    drivetrain.set_headling_lock_constants(Kp=5.0)
+
+    drivetrain.set_stopping(BrakeType.BRAKE)
+
+    print_tracker(tracker)
+
+    distance, heading = tracker.trajectory_to_point(x=100, y=0)
+    drivetrain.drive_straight_for(FORWARD, 100.0, MM, heading=0.0)
+    drivetrain.turn_to_heading(90)
+    drivetrain.turn_to_heading(0)
+    drivetrain.drive_straight_for(REVERSE, 100.0, MM, heading=0.0)
+
+    print_tracker(tracker)
+
 def autonomous():
     # wait for initialization code
     while (not initialization_complete or tests_running):
@@ -501,8 +533,9 @@ def autonomous():
     # place automonous code here 
     # auto1()
     # auto2()
-    auto3(tracker)
-    # auto4_drive_to_points(tracker)
+    # auto3(tracker)
+    # auto4_drive_to_points(tracker)    
+    auton5(tracker)
 
     print_tracker(tracker)
     

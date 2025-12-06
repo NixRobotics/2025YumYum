@@ -12,6 +12,7 @@
 # Library imports
 from vex import *
 from math import pi, cos, sin, radians, degrees
+from v5pythonlibrary import *
 
 # declare devices
 brain = Brain()
@@ -27,12 +28,16 @@ left_back_motor = Motor(Ports.PORT11, GearSetting.RATIO_6_1, True)
 right_front_motor = Motor(Ports.PORT18, GearSetting.RATIO_6_1, False)
 right_mid_motor = Motor(Ports.PORT19, GearSetting.RATIO_6_1, False)
 right_back_motor = Motor(Ports.PORT20, GearSetting.RATIO_6_1, False)
+DRIVETRAIN_WHEEL_SIZE = 260.0
+DRIVETRAIN_TRACK_WIDTH = 320 # Not used
+DRIVETRAIN_WHEEL_BASE = 320 # Not used
+DRIVETRAIN_GEAR_RATIO = 36.0/48.0
 
 ramp_motor = Motor(Ports.PORT9, GearSetting.RATIO_18_1, True)
 shooter_motor = Motor(Ports.PORT1, GearSetting.RATIO_18_1, False)
 
-inertial_sensor = Inertial(Ports.PORT2)
-GYRO_SCALE = 360.0 / (360.0 + 0.0) # this is roughly how much robot over-turns per revolution
+GYRO_SCALE = (360.0 + 3.475) / 360.0# this is roughly how much robot over-turns per revolution
+inertial_sensor = InertialWrapper(Ports.PORT16, GYRO_SCALE)
 
 arm_solenoid = DigitalOut(brain.three_wire_port.h)
 ramp_solenoid = DigitalOut(brain.three_wire_port.g)
@@ -43,9 +48,13 @@ color2 = Optical(Ports.PORT7)
 # vex helper constructs
 left_motor_group = MotorGroup(left_front_motor, left_mid_motor, left_back_motor)
 right_motor_group = MotorGroup(right_front_motor, right_mid_motor, right_back_motor)
-drivetrain = SmartDrive(left_motor_group, right_motor_group, inertial_sensor, 260, 320, 320, DistanceUnits.MM, 24/60)
+drivetrain = SmartDriveWrapper(left_motor_group, right_motor_group, inertial_sensor,
+                               DRIVETRAIN_GEAR_RATIO, DRIVETRAIN_TRACK_WIDTH, DRIVETRAIN_WHEEL_BASE,
+                               DistanceUnits.MM,
+                               DRIVETRAIN_GEAR_RATIO)
 
-# Monitor Monitoring
+# ------------------------------------------------------------ #
+# Motor Monitoring
 class MotorMonitor:
     global left_front_motor, left_mid_motor, left_back_motor, right_front_motor, right_mid_motor, right_back_motor, ramp_motor, shooter_motor
 
@@ -137,109 +146,63 @@ class MotorMonitor:
                 monitor.monitor_UI(motor_error, motor_is_cool, motor_is_warm, motor_is_hot)
             wait(2, TimeUnits.SECONDS)
 
-class Tracking:
-    global inertial_sensor, left_motor_group, right_motor_group
+# ------------------------------------------------------------ #
+# Robot position tracking
 
-    # Tracking wheel geometry
-    # In this case we are just uising morot encoders and gyro, however same concept works for odometry wheels
-    GEAR_RATIO = 24.0 / 60.0 # external gear ratio
-    WHEEL_SIZE = 0.260 # m
-    # FWD_OFFSET is the distance from the robot center to the forward tracking wheel, right is positive
-    FWD_OFFSET = 0.0 # m
-    # SIDE_OFFSET is the distance from the robot center to the side tracking wheel, forward is positive
-    SIDE_OFFSET = 0.0 # m
+USING_TRACKING_WHEELS = False
+USING_RESAMPLING = False
 
-    def __init__(self, x, y, heading):
-        self.x = x # meters NORTH
-        self.y = y # meters EAST
-        # heading is assumed to be a raw inertial sensor reading for initialization
-        # heading passed in as degrees 0 to 360. Converted to continuous radians
-        # theta is our internal heading in radians
-        self.theta = self.to_angle(radians(heading)) / GYRO_SCALE # continuous radians
-        self.timestep = 0.01 # seconds
+if USING_TRACKING_WHEELS:
+    rotation_fwd = Rotation(Ports.PORT6, False)
+    rotation_strafe = Rotation(Ports.PORT7, False)
+    all_sensors = [inertial_sensor, rotation_fwd, rotation_strafe]
 
-        self.previous_left_position = 0.0 # revolutions
-        self.previous_right_position = 0.0 # revolutions
-        self.previous_theta = 0.0 # radians
+    ODOMETRY_FWD_SIZE = 218.344
+    ODOMETRY_FWD_OFFSET = 0.0316 * 25.4
+    ODOMETRY_FWD_GEAR_RATIO = 1.0
+    ODOMETRY_STRAFE_SIZE = 157.38
+    ODOMETRY_STRAFE_OFFSET = 4.526 * 25.4
+    ODOMETRY_STRAFE_GEAR_RATIO = 1.0
 
-    # helper function for converting angles
-    # mimics inertial.angle() producing result in range (-180, 180])
-    # note: degrees in and out
-    def to_angle(self, rotation):
-        angle = rotation % 360.0
-        if (angle > 180.0): angle -= 360.0
-        return angle
+else:
+    all_sensors = [inertial_sensor]
 
-    # mimics inertial.heading() producing result in range [0, 360)
-    # note: degrees in and out
-    def to_heading(self, rotation):
-        return rotation % 360.0
-    
-    # returns internal theta (radians) to degrees heading [0, 360)
-    def current_heading(self):
-        heading_deg = degrees(self.theta)
-        return self.to_heading(heading_deg)
+    ODOMETRY_FWD_SIZE = DRIVETRAIN_WHEEL_SIZE
+    ODOMETRY_FWD_OFFSET = 0.0
+    ODOMETRY_FWD_GEAR_RATIO = DRIVETRAIN_GEAR_RATIO
+    ODOMETRY_STRAFE_SIZE = 0.0
+    ODOMETRY_STRAFE_OFFSET = 0.0
+    ODOMETRY_STRAFE_GEAR_RATIO = 0.0
 
-    def calc_timestep_arc_chord(self, x, y, theta, delta_forward, delta_side, delta_theta):
-        # x, y, delta_forward, delta_side in meters
-        # theta, delta_theta in radians
+tracker = None  # type: Tracking | None
 
-        # local deltas
-        if (delta_theta == 0.0):
-            # no turn - use simple deltas
-            delta_local_x = delta_forward
-            delta_local_y = delta_side
-            to_global_rotation_angle = theta
-        else:
-            # robot turning
-            # calculate radius of movement for forward and side wheels
-            r_linear = Tracking.FWD_OFFSET + (delta_forward / delta_theta) # m
-            r_strafe = Tracking.SIDE_OFFSET + (delta_side / delta_theta) # m
+def initialize_tracker():
+    global tracker
+    starting_location = Tracking.Orientation(0.0, 0.0, 0.0)
+    tracker_configuration = Tracking.Configuration(
+            fwd_is_odom=USING_TRACKING_WHEELS,
+            fwd_wheel_size=ODOMETRY_FWD_SIZE,
+            fwd_gear_ratio=ODOMETRY_FWD_GEAR_RATIO,
+            fwd_offset=ODOMETRY_FWD_OFFSET,
+            side_wheel_size=ODOMETRY_STRAFE_SIZE,
+            side_gear_ratio=ODOMETRY_STRAFE_GEAR_RATIO,
+            side_offset=ODOMETRY_STRAFE_OFFSET
+        )
+    if USING_TRACKING_WHEELS:
+        tracker_devices = [rotation_fwd, rotation_strafe, inertial_sensor]
+    else:
+        tracker_devices = [left_motor_group, right_motor_group, inertial_sensor]
 
-            # calculate chord distances using chord length = 2 * r * sin(theta / 2)
-            # pre-rotate by half the turn angle so we have only distance along one axis for each
-            # when we rotate to global frame we need to account for this half-angle rotation
-            to_global_rotation_angle = theta + delta_theta / 2
-            delta_local_x = r_linear * 2.0 * sin(delta_theta / 2.0)
-            delta_local_y = r_strafe * 2.0 * sin(delta_theta / 2.0)
+    tracker = Tracking(tracker_devices, starting_location, tracker_configuration, initial_values=None)
+    tracker.enable_resampling(USING_RESAMPLING)
+    # give tracker some time to get going
+    wait(0.1, SECONDS)
 
-        # rotate to global
-        delta_global_x = delta_local_x * cos(to_global_rotation_angle) - delta_local_y * sin(to_global_rotation_angle)
-        delta_global_y = delta_local_x * sin(to_global_rotation_angle) + delta_local_y * cos(to_global_rotation_angle)
-
-        return (x + delta_global_x, y + delta_global_y, theta + delta_theta)
-
-    def update_location(self, left_position, right_position, theta):
-        left_position *= Tracking.GEAR_RATIO
-        right_position *= Tracking.GEAR_RATIO
-
-        delta_left = left_position - self.previous_left_position
-        delta_right = right_position - self.previous_right_position
-        delta_theta = theta - self.previous_theta
-
-        delta_forward = Tracking.WHEEL_SIZE * (delta_left + delta_right) / 2.0
-        delta_side = 0.0 # no side encoder
-
-        self.x, self.y, self.theta = self.calc_timestep_arc_chord(self.x, self.y, self.theta, delta_forward, delta_side, delta_theta)
-
-        self.previous_left_position = left_position
-        self.previous_right_position = right_position
-        self.previous_theta = theta
-
-    def gyro_rotation(self, sensor):
-        return radians(sensor.rotation() / GYRO_SCALE)
-
-    @staticmethod
-    def tracker_thread():
-        # print(args)
-        tracker = Tracking(0, 0, inertial_sensor.heading())
-        loop_count = 0
-        while(True):
-            tracker.update_location(left_motor_group.position(RotationUnits.REV), right_motor_group.position(RotationUnits.REV), tracker.gyro_rotation(inertial_sensor))
-            #if (loop_count % 100 == 0):
-            #    print("X: {:.2f} m, Y: {:.2f} m, Heading: {:.2f} deg".format(tracker.x, tracker.y, tracker.heading()))
-            loop_count += 1
-            wait(tracker.timestep, SECONDS)
+def print_tracker(tracker: Tracking, x = 0.0, y = 0.0):
+    orientation = tracker.get_orientation()
+    origin_distance, origin_heading = tracker.trajectory_to_point(x, y)
+    print("X: {:.1f} mm, Y: {:.1f} mm, Heading: {:.2f} deg".format(orientation.x, orientation.y, orientation.heading))
+    print(" - To Point: Distance: {:.1f} mm, Heading: {:.2f} deg".format(origin_distance, origin_heading))
 
 def pre_autonomous():
     global initialization_complete
@@ -259,13 +222,42 @@ def pre_autonomous():
 
     # start background threads
     motor_monitor_thread = Thread(MotorMonitor.motor_monitor_thread)
-    tracker_thread = Thread(Tracking.tracker_thread)
+    initialize_tracker()
+
     wait(0.1, SECONDS)
 
     print("a piston: ", arm_solenoid.value())
     print("b piston: ", ramp_solenoid.value())
 
     initialization_complete = True
+
+def auto1():
+    print("auto1")
+    # gear ratio over circum
+    # Circumfrence pi * 3.25" or pi * 3.25 * 25.4 mm
+    # for each rev of the motor mutliply by the grear ratio times circumfrence    
+    distance_per_rev = DRIVETRAIN_GEAR_RATIO * DRIVETRAIN_WHEEL_SIZE # this is going to be in MM
+    
+    left_motor_group.spin_for(FORWARD, 6.0 * 25.4 /distance_per_rev, RotationUnits.REV, 25, PERCENT, wait=False)
+    right_motor_group.spin_for(FORWARD, 6.0 * 25.4/ distance_per_rev, RotationUnits.REV, 25, PERCENT, wait=False)
+    wait(1,SECONDS)
+
+    left_motor_group.stop(COAST)
+    right_motor_group.stop(COAST)
+
+def auto2():
+    print("auto2")
+    drivetrain.set_drive_velocity(50, PERCENT)
+    drivetrain.set_turn_velocity(40, PERCENT)
+    drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
+    drivetrain.set_turn_threshold(0.25)
+    drivetrain.set_stopping(BrakeType.BRAKE)
+
+    revolutions = 1.0
+    timeout = revolutions * 3.0
+    drivetrain.set_timeout(timeout, SECONDS)
+    drivetrain.turn_for(RIGHT, revolutions * 360.0, DEGREES, units_v=PercentUnits.PERCENT, wait=True)
+    drivetrain.stop(COAST)
 
 def autonomous():
     # wait for initialization code
@@ -281,220 +273,22 @@ def autonomous():
     else:
         brain.screen.print("GYRO MISSING")
 
-    left_motor_group.stop(COAST)
-    right_motor_group.stop(COAST)
+    if tracker is None:
+        raise RuntimeError("Tracker not initialized")
+    tracker.enable()
 
-class MedianFilter3:
-    def __init__(self, initial_value = 0.0):
-        self.buffer = [initial_value] * 3
-        self.a = self.b = self.c = initial_value
-        self.latest_value = initial_value
+    wait(10, MSEC)
+    print_tracker(tracker)
 
-    def _update(self, new_value):
-        self.buffer.pop(0)
-        self.buffer.append(new_value)
-        sorted = self.buffer.copy()
-        sorted.sort()
-        return sorted[1]
+    # place automonous code here 
+    # auto1()
+    auto2()
+    # auto3(tracker)
 
-    def _update_fast(self, new_value):
-        self.a = self.b
-        self.b = self.c
-        self.c = new_value
+    print_tracker(tracker)
 
-        if self.a > self.b:
-            if self.b > self.c: return self.b
-            elif self.a > self.c: return self.c
-            else: return self.a
-        else:
-            if self.a > self.c: return self.a
-            elif self.b > self.c: return self.c
-            else: return self.b
 
-    def update(self, new_value):
-        self.latest_value = self._update_fast(new_value)
-        return self.latest_value
-    
-    @property
-    def median(self):
-        return self.latest_value
-
-class DriverControl:
-    # Constants for ramp control
-    MAX_CONTROL_RAMP = 4 # percent per timestep (assumed to be 10ms)
-    
-    # Constants to convert percent to volt for drivetrain
-    MOTOR_MAXVOLT = 11.5 # volts
-    MOTOR_VOLTSCALE = MOTOR_MAXVOLT / 100.0
-
-    # Constant for controller deadband - below this value treat motors as stopped. Avoids robot creep and potential chattering
-    MOTOR_DEADBAND = 5
-
-    def __init__(self, left_motor_group, right_motor_group, inertial_sensor, gyro_scale = 1.0):
-        self.lmg = left_motor_group
-        self.rmg = right_motor_group
-        self.gyro = inertial_sensor
-        self.gyro_scale = gyro_scale
-    
-        # Ramp control variables - assumes robot is stationary at start
-        self.last_speed = 0
-        self.last_turn = 0
-
-        # Motor control variables - 
-        #  - drivetrain_running says if drivetrain motors can spin. If false, the controller is in the deadband range and we stop the motors 
-        self.drivetrain_running = False
-
-        self.follow_heading = None
-
-    # DETWITCH - reduce turn sensitiviy when robot is moving slowly (turning in place)
-    # NOTE: speed is not altered only turn
-    # @param speed in percent - from -100 to +100 (full reverse to full forward)
-    # @param turn in percent - from -100 to +100 (full left turn to full right turn)
-    # returns speed (unmodified) and turn based on algorithm below
-    def drivetrain_detwitch(self, speed, turn):   
-
-        speedMixLim = 33.0 # upper limit of throttle mixing (above this point, full turn allowed) in PERCENT
-        # NOTE: Next 2 parameters should add up to 100 (throttlemixMinSens + throttlemixSlope = 100)
-        speedMixMinSens = 50.0 # PERCENT, minimum turn sensitivity point (i.e. when turning in place)
-        speedMixSlope = 50.0 # rate at which turn sensitivity increases with increased throttle
-        # turnscale will be used to change how fast we can turn based on spee
-        turnscale = 1.0 # start with full turn speed
-
-        if (abs(speed) < speedMixLim):
-            speedmix = abs(speed) / speedMixLim
-            turnscale = turnscale * ((speedMixMinSens / 100.0) + (speedMixSlope / 100.0) * speedmix)
-
-        turn = turn * turnscale
-
-        return speed, turn
-
-    # RAMP LIMIT - limit how fast we can go from one extreme to another on the joysticks
-    # The max range is 200 percent (ie from -100 to +100). A value of 20 for MAX_CONTROL_RAMP would take 0.1s to go from full
-    #  forward to full reverse, or from full left to full right turn
-    # NOTE: This is done on the control inputs to avoid potential motion artifacts if done on motors separately
-    # @param speed is percent forward/reverse speed
-    # @param turn is percent left/right speed
-    # returns ramp controlled speed and turn (in percent)
-    def drivetrain_ramp_limit(self, speed, turn):
-
-        if (abs(speed - self.last_speed) > DriverControl.MAX_CONTROL_RAMP):
-            if (speed > self.last_speed): speed = self.last_speed + DriverControl.MAX_CONTROL_RAMP
-            else: speed = self.last_speed - DriverControl.MAX_CONTROL_RAMP
-
-        if (abs(turn - self.last_turn) > DriverControl.MAX_CONTROL_RAMP):
-            if (turn > self.last_turn): turn = self.last_turn + DriverControl.MAX_CONTROL_RAMP
-            else: turn = self.last_turn - DriverControl.MAX_CONTROL_RAMP
-
-        self.last_speed = speed
-        self.last_turn = turn
-
-        return speed, turn
-    
-    # CLAMPING - limits output to range -clamp_value, clamp_value
-    # @param input in percent
-    # @param (optional) clamp_value - defaults to 100 percent
-    # returns clamped value (in percent)
-    def clamp(self, input, clamp_value = 100):
-        return max(min(input, clamp_value), -clamp_value)
-    
-    # CONTROLLER_DEADBAND - used in case controller has some drift, mostly for turning
-    def controller_deadband(self, input, deadband, max_range = 100):
-        output = 0
-        scale = max_range / (max_range - deadband)
-        if (abs(input) < deadband):
-            output = 0
-        elif (input > 0):
-            output = (input - deadband) * scale
-        elif (input < 0):
-            output = (input + deadband) * scale
-
-        return output
-    
-    # GYRO_ROTATION - get the current rotation value in degrees and scale by the gyro scale
-    def gyro_rotation(self):
-        return self.gyro.rotation() / self.gyro_scale
-
-    # DRIVE_STRAIGHT - will attempt to follow gyro heading when enabled
-    def drive_straight(self, speed):
-        if (self.gyro is None or not self.gyro.installed):
-            return speed, 0
-        
-        if (self.follow_heading is None):
-            self.follow_heading = self.gyro_rotation()
-            # print("Follow enabled", self.follow_heading)
-            return speed, 0
-
-        error = self.follow_heading - self.gyro_rotation()
-        Kp = 3.0
-        turn = error * Kp
-
-        # Note: motors turn 10 revolutions per robot 360deg rotation, or 10 * 24 / 60 = 4 wheel rotations
-        # - Wheels travel a distance of 4 * 260mm = 1.04m
-        # - To turn robot 360deg in one second is 10 revs / sec or 600RPM (coincidently full speed of the blue motors)
-        # - Therefore one percent of turn command corresponds to 3.6deg/sec of robot rotational velocity
-        # - With Kp of 4 it means we are commanding robot to turn at 14.4deg/sec per degree of heading error
-
-        return speed, turn
-    
-    # CANCEL_DRIVE_STRAIGHT - resets the heading
-    def cancel_drive_straight(self):
-        if (self.follow_heading is not None):
-            # print("Follow cancelled")
-            self.follow_heading = None
-
-    # USER DRIVETRAIN - main entry for user control. Should be called every 10ms
-    # First calls the detwitch function
-    # Secondly calls the ramp control
-    # Thirdly checks deadband range and instructs motors to either run or stop
-    # The deadband logic may seem a bit convoluted, but it prevents the motor from being "stopped" every cycle
-    # - drivetrain_running is used as a flag so we only stop once until the controls move above the deadband again
-    # @param control_speed is raw controller forward / backwards speed in percent
-    # @param control_turn is raw controller left / right speed in percent
-    # no return value
-    def user_drivetrain(self, control_speed, control_turn, enable_drive_straight = False):
-        # calculate the drivetrain motor velocities from the controller joystick axes
-
-        # just in case - make sure there is no turn coming from the joystick unless we want it
-        control_turn = self.controller_deadband(control_turn, 2)
-
-        # Select auto follow heading mode if enabled and we are not commanded to turn, and are not waiting on a turn to finish
-        if (enable_drive_straight and control_speed != 0 and control_turn == 0 and self.last_turn == 0):
-            auto_speed, auto_turn = self.drive_straight(control_speed)
-            safe_speed, _ = self.drivetrain_ramp_limit(auto_speed, 0)
-            safe_turn = auto_turn
-        # Else just follow along with what the driver is doing
-        else:
-            self.cancel_drive_straight()
-            detwitch_speed, detwitch_turn = self.drivetrain_detwitch(control_speed, control_turn)
-            safe_speed, safe_turn = self.drivetrain_ramp_limit(detwitch_speed, detwitch_turn)
-        
-        # mix together speed and turn and clamp combined values to -100 to +100 percent
-        drivetrain_left_side_speed = self.clamp(safe_speed + safe_turn)
-        drivetrain_right_side_speed = self.clamp(safe_speed - safe_turn)
-
-        # check if the values are inside of the deadband range
-        if abs(drivetrain_left_side_speed) < DriverControl.MOTOR_DEADBAND and abs(drivetrain_right_side_speed) < DriverControl.MOTOR_DEADBAND:
-            # check if the motors have already been stopped
-            if self.drivetrain_running:
-                # stop the drive motors
-                self.lmg.stop(COAST)
-                self.rmg.stop(COAST)
-                # tell the code that the motors have been stopped
-                self.drivetrain_running = False
-        else:
-        # reset the toggle so that the deadband code knows to stop the motors next
-        # time the input is in the deadband range
-            self.drivetrain_running = True
-
-        # NOTE: supplying VOLT shows as a mismatched type error, although it runs fine as is valid per the API. 'type: ignore' silences the error
-        # only tell the left drive motor to spin if the values are not in the deadband range
-        if self.drivetrain_running:
-            self.lmg.spin(FORWARD, drivetrain_left_side_speed * DriverControl.MOTOR_VOLTSCALE, VOLT) # type: ignore
-
-        # only tell the right drive motor to spin if the values are not in the deadband range
-        if self.drivetrain_running:
-            self.rmg.spin(FORWARD, drivetrain_right_side_speed * DriverControl.MOTOR_VOLTSCALE, VOLT) # type: ignore
-
+# ------------------------------------------------------------ #
 ## INTAKE/RAMP AND SHOOTER CONTROL ##
 
 # We treat positive values as the"intake" or "up" direction for both intake and conveyor
@@ -549,6 +343,7 @@ def close_trapdoor():
 def trapdoor_is_open():
     return ramp_solenoid.value() == 1
 
+# ------------------------------------------------------------ #
 # Controller mapping - note there are two control modes:
 # - individual control uses all four bumpers L1, L2, R1, R2 and controls intake and shooter independently
 # - linked control mapped as follors:
@@ -558,6 +353,12 @@ def trapdoor_is_open():
 #   - L2: mid-level goal score (intake + trapdoor open)
 # All buttons are toggles in both modes
 control_mode = 1 # 0 is individual control, 1 is linked control
+# Other functions mapped as follows
+# - A: Lower/Raise intake flip mech
+# - B: Open/Close trapdoor
+# - X: Enable/Disable color sort (currently only rejects blue)
+# - Up: Enable/Disable drive straight (driver control). Uses inertial sensor to keep robot on straight path
+# - Down: Enable/Disable full speed mode (driver control). By default 480RPM drive is maade to look like 240RPM drive
 
 # Intake
 def OnButtonR1Pressed():
@@ -645,14 +446,25 @@ def OnButtonUpPressed():
     if (ENABLE_DRIVE_STRAIGHT): ENABLE_DRIVE_STRAIGHT = False
     else: ENABLE_DRIVE_STRAIGHT = True
 
-# Arm solenoid toggle
+# Full speed toggle
+ENABLE_FULL_SPEED = False
+FULL_SPEED = 100
+SLOW_SPEED = 50
+CURRENT_SPEED = SLOW_SPEED
+def OnButtonDownPressed():
+    global ENABLE_FULL_SPEED, CURRENT_SPEED
+    if (ENABLE_FULL_SPEED): ENABLE_FULL_SPEED = False
+    else: ENABLE_FULL_SPEED = True
+    CURRENT_SPEED = FULL_SPEED if ENABLE_FULL_SPEED else SLOW_SPEED
+
+# Flippy solenoid toggle
 def OnButtonAPressed():
     if (arm_solenoid.value() == 0):
         arm_solenoid.set(1)
     else:
         arm_solenoid.set(0)
 
-# Wedge solenoid toggle
+# Trapdoor solenoid toggle
 def OnButtonBPressed():
     if (ramp_solenoid.value() == 0):
         ramp_solenoid.set(1)
@@ -711,6 +523,8 @@ def user_control():
     while (not initialization_complete or tests_running):
         wait(10, MSEC)
 
+    autonomous()
+
     print("driver control")
     brain.screen.clear_screen()
     brain.screen.print("driver control")
@@ -721,16 +535,19 @@ def user_control():
     controller_1.buttonL1.pressed(OnButtonL1Pressed) # Shooter On or Long Goal Score
     controller_1.buttonL2.pressed(OnButtonL2Pressed) # Shooter Reverse or Mid Level Goal Score
     controller_1.buttonUp.pressed(OnButtonUpPressed) # Enable / disable drive straight - DEMO ONLY
+    controller_1.buttonDown.pressed(OnButtonDownPressed) # Toggle full vs reduced speed
     controller_1.buttonA.pressed(OnButtonAPressed) # Toggle arm solenoid
     controller_1.buttonB.pressed(OnButtonBPressed) # Toggle trapdoor solenoid
     controller_1.buttonX.pressed(OnButtonXPressed) # Toggle color sort
 
     # drivetrain control
-    driver_control = DriverControl(left_motor_group, right_motor_group, inertial_sensor, GYRO_SCALE)
+    driver_control = DriverControl(left_motor_group, right_motor_group, inertial_sensor)
 
     # place driver control in this while loop
     while True:
-        driver_control.user_drivetrain(controller_1.axis3.position(), controller_1.axis1.position(), ENABLE_DRIVE_STRAIGHT)
+        driver_control.set_mode(enable_drive_straight=ENABLE_DRIVE_STRAIGHT)
+        driver_control.set_speed_limits(drive_max=CURRENT_SPEED)
+        driver_control.user_drivetrain(controller_1.axis3.position(), controller_1.axis1.position())
         if color_sort_enable and shooter_speed != 0:
             color_sort()
         wait(10, MSEC) # DO NOT CHANGE

@@ -538,7 +538,33 @@ def auto4_drive_to_points(tracker: Tracking):
     wait(0.1, SECONDS)
     print_tracker(tracker, start_point[0], start_point[1])
 
+move_done = False
+def drive_to_point(tracker: Tracking, x: float, y: float, rev: bool, linear_speed: float, turn_speed: float):
+        global move_done
+        print_tracker(tracker, x, y)
+        print(inertial_sensor.rotation())
+        distance, heading = tracker.trajectory_to_point(x, y, reverse=rev)
+        # print(distance, heading)
+
+        drive_timeout = 1.0 + abs(distance / linear_speed) # convert to MM/s and pad with 1 sec
+        turn_timeout = 1.0 # HACK
+
+        # Point in roughly the right direction
+        drivetrain.set_timeout(turn_timeout, SECONDS)
+        drivetrain.set_turn_threshold(1.0) # DEGREES - Can relax constrains before longer drives
+        drivetrain.turn_to_heading(heading)
+        print_tracker(tracker, x, y)
+
+        # Drive straight
+        distance, heading = tracker.trajectory_to_point(x, y, reverse=rev)
+        drivetrain.set_timeout(drive_timeout, SECONDS)
+        drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
+        wait(0.1, SECONDS)
+        print_tracker(tracker, x, y)
+        move_done = True
+
 def auto4_match(tracker: Tracking):
+    global move_done
     print("auto4_match")
 
     drive_speed = 50 # PERCENT
@@ -562,7 +588,7 @@ def auto4_match(tracker: Tracking):
 
     print_tracker(tracker)
     
-    x_start = 600.0 - 17 * 25.4
+    x_start = 600.0 - 16.75 * 25.4
     y_start = 1200.0 + 8.0 * 25.4
 
     points = [
@@ -570,11 +596,12 @@ def auto4_match(tracker: Tracking):
         [900.0, y_start, False],
 
         [1453.0, 1448.0, True], # align to center goal 
-        [1595.0, 1595.0, True], # center goal - 1600,1590
-
+        [1619.0, 1580.0, True], # center goal - 1600,1590
+        
         [600.0, 614.0, False], # Align with hopper
         [413.0, 614.0, False], # hopper 600 - 6.75 * 25.4, dot on
         [1179.0-95.0, 600.0, True]
+        
     ]
 
     start_point = points.pop(0) # remove first point as that is the starting point
@@ -590,6 +617,15 @@ def auto4_match(tracker: Tracking):
         x = point[0]
         y = point[1]
         rev = point[2]
+
+        move_done = False
+        move_thread = Thread(drive_to_point, (tracker, x, y, rev, linear_speed_mm_sec, turn_speed_rev_sec))
+        while not move_done:
+            wait(10, MSEC)
+
+        print("done")
+
+        '''
         print_tracker(tracker, x, y)
         print(inertial_sensor.rotation())
         distance, heading = tracker.trajectory_to_point(x, y, reverse=rev)
@@ -610,6 +646,7 @@ def auto4_match(tracker: Tracking):
         drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
         wait(0.1, SECONDS)
         print_tracker(tracker, x, y)
+        '''
 
         if i == 2:
             open_trapdoor()

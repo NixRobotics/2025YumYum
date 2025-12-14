@@ -18,7 +18,7 @@ from v5pythonlibrary import *
 brain = Brain()
 controller_1 = Controller(PRIMARY)
 
-initialization_complete = False
+initialization_complete = False # wait for pre_auton to complete
 tests_running = False
 
 left_front_motor = Motor(Ports.PORT13, GearSetting.RATIO_6_1, True)
@@ -28,7 +28,7 @@ left_back_motor = Motor(Ports.PORT11, GearSetting.RATIO_6_1, True)
 right_front_motor = Motor(Ports.PORT18, GearSetting.RATIO_6_1, False)
 right_mid_motor = Motor(Ports.PORT19, GearSetting.RATIO_6_1, False)
 right_back_motor = Motor(Ports.PORT20, GearSetting.RATIO_6_1, False)
-DRIVETRAIN_WHEEL_SIZE = 260.0
+DRIVETRAIN_WHEEL_SIZE = 260.0 # Wheel circumherence in MM
 DRIVETRAIN_TRACK_WIDTH = 320.0 # Not used
 DRIVETRAIN_WHEEL_BASE = 320.0 # Not used
 DRIVETRAIN_GEAR_RATIO = 36.0/48.0
@@ -39,7 +39,7 @@ shooter_motor = Motor(Ports.PORT1, GearSetting.RATIO_18_1, False)
 GYRO_SCALE = (360.0 + 3.475) / 360.0# this is roughly how much robot over-turns per revolution
 inertial_sensor = InertialWrapper(Ports.PORT16, GYRO_SCALE)
 
-arm_solenoid = DigitalOut(brain.three_wire_port.h)
+flippy_solenoid = DigitalOut(brain.three_wire_port.h)
 ramp_solenoid = DigitalOut(brain.three_wire_port.g)
 
 color1 = Optical(Ports.PORT6)
@@ -251,6 +251,7 @@ def stop_shooter():
     shooter_speed = 0
     shooter_motor.stop(COAST)
 
+# trapdoor control functions
 def open_trapdoor():
     ramp_solenoid.set(1)
 
@@ -260,23 +261,63 @@ def close_trapdoor():
 def trapdoor_is_open():
     return ramp_solenoid.value() == 1
 
-def detect_blue(sensor):
+# flippy control functions
+def raise_flippy():
+    flippy_solenoid.set(0)
+
+def lower_flippy():
+    flippy_solenoid.set(1)
+
+def flippy_is_lowered():
+    return flippy_solenoid.value() == 1
+
+# ------------------------------------------------------------ #
+# Expermimental color sort function - only scores red right now (rejects blue)
+
+def enable_color_sort(enable: bool):
+    if not enable:
+        color1.set_light_power(0, PERCENT)
+        color2.set_light_power(0, PERCENT)
+    else:
+        color1.set_light_power(100, PERCENT)
+        color2.set_light_power(100, PERCENT)
+
+COLOR_BLUE_MIN = 200
+COLOR_BLUE_MAX = 230
+COLOR_RED_MIN = 0
+COLOR_RED_MAX = 20
+DETECT_BLUE = 0
+DETECT_RED = 1
+
+def detect_color(sensor: Optical, color: int):
+    '''
+    ### Docstring for detect_color
+    
+    :param sensor: Optical sensor object
+    :type sensor: Optical
+    :param color: color to detect (DETECT_BLUE or DETECT_RED)
+    :type color: int
+    '''
+    if color == DETECT_BLUE:
+        color_min = COLOR_BLUE_MIN
+        color_max = COLOR_BLUE_MAX
+    else:
+        color_min = COLOR_RED_MIN
+        color_max = COLOR_RED_MAX
     if not sensor.is_near_object():
         return False
     hue = sensor.hue()
-    if hue > 200 and hue < 230:
+    if hue > color_min and hue < color_max:
         return True
     return False
 
-# Expermimental color sort function - only scores red right now (rejects blue)
-color_sort_enable = False
 color_sort_valid = False
 color_sort_valid_count = 0
 color_sort_shooter_speed = 0
 
 def color_sort():
     global color_sort_valid, color_sort_valid_count, color_sort_shooter_speed
-    if detect_blue(color1) or detect_blue(color2):
+    if detect_color(color1, DETECT_BLUE) or detect_color(color2, DETECT_BLUE):
         if not color_sort_valid:
             ramp_solenoid.set(1)
             color_sort_shooter_speed = shooter_speed
@@ -294,17 +335,26 @@ def color_sort():
             color_sort_valid = False
             print("Blue lost")
 
+def stop_on_color():
+    global color_sort_valid, color_sort_valid_count, color_sort_shooter_speed
+    if detect_color(color1, DETECT_BLUE) or detect_color(color2, DETECT_BLUE):
+        stop_intake()
+        stop_shooter()
+
 # ------------------------------------------------------------ #
 ### AUTONOMOUS ###
 
+ALLIANCE_COLOR = "RED" # "RED" or "BLUE"
+
 def pre_autonomous():
-    global initialization_complete
+    global initialization_complete, ALLIANCE_COLOR
     # actions to do when the program starts
     # wait a bit before doing anything to let devices initialize
     print("pre-auton code")
 
     wait(0.1, SECONDS)
     brain.screen.clear_screen()
+    brain.screen.set_cursor(1,1)
     brain.screen.print("pre auton code")
 
     # calibrate the inertial sensor
@@ -316,12 +366,19 @@ def pre_autonomous():
     # start background threads
     motor_monitor_thread = Thread(MotorMonitor.motor_monitor_thread)
     initialize_tracker()
+    enable_color_sort(True)
 
     wait(0.1, SECONDS)
 
-    print("a piston: ", arm_solenoid.value())
+    print("a piston: ", flippy_solenoid.value())
     print("b piston: ", ramp_solenoid.value())
+    if detect_color(color1, DETECT_BLUE) or detect_color(color2, DETECT_BLUE):
+        print("BLUE")
+        brain.screen.set_cursor(2,1)
+        brain.screen.print("BLUE DETECTED")
+        ALLIANCE_COLOR = "BLUE" # default to red if blue detected
 
+    enable_color_sort(False)
     initialization_complete = True
 
 def drivetrain_max_speeds(motor_speed_rpm, wheel_size_mm, gear_ratio):
@@ -405,8 +462,7 @@ def auto4_drive_to_points(tracker: Tracking):
     drivetrain.set_stopping(BrakeType.BRAKE)
 
     print_tracker(tracker)
-
-    '''
+    
     x_near = 0.0
     x_far = 2.0 * 600.0
 
@@ -414,13 +470,13 @@ def auto4_drive_to_points(tracker: Tracking):
     y_right = 1.0 * 600.0
 
     points = [
+        [x_near, y_left], # start point
         [x_far, y_left],
         [x_far, y_right],
         [x_near, y_right],
         [x_near, y_left]
     ]
     '''
-
     # field tiles are 600mm across
     x_near = 1.5 * 600.0
     x_far = 4.5 * 600.0
@@ -431,6 +487,7 @@ def auto4_drive_to_points(tracker: Tracking):
     y_far_right = 5.5 * 600.0
 
     points = [
+        [x_near, y_mid_left], # start point
         [x_far, y_mid_left],
         [x_far, y_mid_right],
         [x_near, y_mid_right],
@@ -440,6 +497,10 @@ def auto4_drive_to_points(tracker: Tracking):
         [x_near, y_far_right],
         [x_near, y_mid_left]
     ]
+    '''
+
+    start_point = points.pop(0) # remove first point as that is the starting point
+    tracker.set_orientation(Tracking.Orientation(start_point[0], start_point[1], 0.0))
 
     for i in range(4):
         for point in points:
@@ -472,10 +533,104 @@ def auto4_drive_to_points(tracker: Tracking):
 
     drivetrain.set_timeout(1.0 + turn_timeout, SECONDS)
     drivetrain.set_turn_threshold(0.25) # DEGREES - More accuracy here
-    drivetrain.turn_to_heading(heading)
+    drivetrain.turn_to_heading(0.0)
     
     wait(0.1, SECONDS)
-    print_tracker(tracker, x_near, y_mid_left)
+    print_tracker(tracker, start_point[0], start_point[1])
+
+def auto4_match(tracker: Tracking):
+    print("auto4_match")
+
+    drive_speed = 50 # PERCENT
+    turn_speed = 50 # PERCENT
+    linear_speed_mm_sec, turn_speed_rev_sec = drivetrain_max_speeds(600, DRIVETRAIN_WHEEL_SIZE, DRIVETRAIN_GEAR_RATIO)
+    linear_speed_mm_sec *= (drive_speed / 100)
+    turn_speed_rev_sec *= (turn_speed / 100)
+
+    drivetrain.set_drive_velocity(drive_speed, PERCENT)
+    drivetrain.set_drive_accleration(3, PERCENT)
+    drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
+    drivetrain.set_drive_threshold(5) # MM
+
+    drivetrain.set_turn_velocity(turn_speed, PERCENT)
+    drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
+    drivetrain.set_turn_threshold(0.5) # DEGREES
+
+    drivetrain.set_headling_lock_constants(Kp=4.0)
+
+    drivetrain.set_stopping(BrakeType.BRAKE)
+
+    print_tracker(tracker)
+    
+    x_start = 600.0 - 17 * 25.4
+    y_start = 1200.0 + 8.0 * 25.4
+
+    points = [
+        [x_start, y_start, False], # start point
+        [900.0, y_start, False],
+
+        [1453.0, 1448.0, True], # align to center goal 
+        [1595.0, 1595.0, True], # center goal - 1600,1590
+
+        [600.0, 614.0, False], # Align with hopper
+        [413.0, 614.0, False], # hopper 600 - 6.75 * 25.4, dot on
+        [1179.0-95.0, 600.0, True]
+    ]
+
+    start_point = points.pop(0) # remove first point as that is the starting point
+    tracker.set_orientation(Tracking.Orientation(start_point[0], start_point[1], 0.0))
+
+    i = 0
+
+    run_intake(True)
+
+    for point in points:
+        print("")
+        print("----- Start Drive", point)
+        x = point[0]
+        y = point[1]
+        rev = point[2]
+        print_tracker(tracker, x, y)
+        print(inertial_sensor.rotation())
+        distance, heading = tracker.trajectory_to_point(x, y, reverse=rev)
+        # print(distance, heading)
+
+        drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
+        turn_timeout = 1.0 # HACK
+
+        # Point in roughly the right direction
+        drivetrain.set_timeout(turn_timeout, SECONDS)
+        drivetrain.set_turn_threshold(1.0) # DEGREES - Can relax constrains before longer drives
+        drivetrain.turn_to_heading(heading)
+        print_tracker(tracker, x, y)
+
+        # Drive straight
+        distance, heading = tracker.trajectory_to_point(x, y, reverse=rev)
+        drivetrain.set_timeout(drive_timeout, SECONDS)
+        drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
+        wait(0.1, SECONDS)
+        print_tracker(tracker, x, y)
+
+        if i == 2:
+            open_trapdoor()
+            wait(1.0, SECONDS)
+            close_trapdoor()
+            lower_flippy()
+            # stop_intake()
+
+        i += 1
+
+    # Final Turn
+    '''
+    print("Start Turn")
+
+    drivetrain.set_timeout(1.0 + turn_timeout, SECONDS)
+    drivetrain.set_turn_threshold(0.25) # DEGREES - More accuracy here
+    drivetrain.turn_to_heading(0.0)
+    '''
+
+    wait(0.1, SECONDS)
+    print_tracker(tracker, start_point[0], start_point[1])
 
 def auton5(tracker: Tracking):
     print("auton5")
@@ -516,7 +671,8 @@ def autonomous():
 
     print("autonomous code")
     brain.screen.clear_screen()
-    brain.screen.print("autonomous code")
+    brain.screen.set_cursor(1,1)
+    brain.screen.print("autonomous code", ALLIANCE_COLOR)
     brain.screen.new_line()
     if (inertial_sensor.installed):
         brain.screen.print("GYRO OK")
@@ -535,7 +691,8 @@ def autonomous():
     # auto2()
     # auto3(tracker)
     # auto4_drive_to_points(tracker)    
-    auton5(tracker)
+    auto4_match(tracker)
+    # auton5(tracker)
 
     print_tracker(tracker)
     
@@ -656,39 +813,45 @@ def OnButtonDownPressed():
 
 # Flippy solenoid toggle
 def OnButtonAPressed():
-    if (arm_solenoid.value() == 0):
-        arm_solenoid.set(1)
+    if flippy_is_lowered():
+        raise_flippy()
     else:
-        arm_solenoid.set(0)
+        lower_flippy()
 
 # Trapdoor solenoid toggle
 def OnButtonBPressed():
-    if (ramp_solenoid.value() == 0):
-        ramp_solenoid.set(1)
+    if trapdoor_is_open():
+        close_trapdoor()
     else:
-        ramp_solenoid.set(0)
+        open_trapdoor()
 
+# Color sort toggle
+color_sort_enabled = False
 def OnButtonXPressed():
-    global color_sort_enable
-    if color_sort_enable:
-        print("color sort on")
-        color1.set_light_power(0, PERCENT)
-        color2.set_light_power(0, PERCENT)
-        color_sort_enable = False
-    else:
+    global color_sort_enabled
+    if color_sort_enabled:
         print("color sort off")
-        color1.set_light_power(100, PERCENT)
-        color2.set_light_power(100, PERCENT)
-        color_sort_enable = True
+        enable_color_sort(False)
+        color_sort_enabled = False
+    else:
+        print("color sort on")
+        enable_color_sort(True)
+        color_sort_enabled = True
 
 def user_control():
     # wait for initialization code
     while (not initialization_complete or tests_running):
         wait(10, MSEC)
 
+    if tracker is None:
+        raise RuntimeError("Tracker not initialized")
+    tracker.enable()
+    # tracker.set_orientation(Tracking.Orientation(start_point[0], start_point[1], 0.0))
+
     print("driver control")
     brain.screen.clear_screen()
-    brain.screen.print("driver control")
+    brain.screen.set_cursor(1,1)
+    brain.screen.print("driver control", ALLIANCE_COLOR)
 
     # events
     controller_1.buttonR1.pressed(OnButtonR1Pressed) # Intake
@@ -703,13 +866,20 @@ def user_control():
 
     # drivetrain control
     driver_control = DriverControl(left_motor_group, right_motor_group, inertial_sensor)
+    driver_control.set_mode(follow_heading_Kp=2.0)
 
     # place driver control in this while loop
+    loop_count = 0
     while True:
+        if (loop_count % 200) == 0:
+            print_tracker(tracker)
+        loop_count += 1
+
         driver_control.set_mode(enable_drive_straight=ENABLE_DRIVE_STRAIGHT)
         driver_control.set_speed_limits(drive_max=CURRENT_SPEED)
         driver_control.user_drivetrain(controller_1.axis3.position(), controller_1.axis1.position())
-        if color_sort_enable and shooter_speed != 0:
+        if color_sort_enabled and shooter_speed != 0:
+            # stop_on_color()
             color_sort()
         wait(10, MSEC) # DO NOT CHANGE
 

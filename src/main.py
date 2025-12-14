@@ -344,6 +344,40 @@ def stop_on_color():
 # ------------------------------------------------------------ #
 ### AUTONOMOUS ###
 
+ROBOT_IS_ENABLED = False
+
+def pre_auton_UI():
+    mode = 0
+    brain.screen.clear_screen()
+    brain.screen.set_fill_color(Color.BLACK)
+    brain.screen.draw_rectangle(10, 10, 100, 50)
+    while not ROBOT_IS_ENABLED:
+        if brain.screen.pressing():
+            mode += 1
+            if mode > 5:
+                mode = 0
+            brain.screen.clear_screen()
+            if mode == 0:
+                brain.screen.set_fill_color(Color.BLACK)
+                brain.screen.draw_rectangle(10, 10, 100, 50)
+            elif mode == 1:
+                brain.screen.set_fill_color(Color.GREEN)
+                brain.screen.draw_rectangle(300, 10, 100, 50)
+            elif mode == 2:
+                brain.screen.set_fill_color(Color.RED)
+                brain.screen.draw_rectangle(10, 75, 100, 50)
+            elif mode == 3:
+                brain.screen.set_fill_color(Color.RED)
+                brain.screen.draw_rectangle(300, 75, 100, 50)
+            elif mode == 4:
+                brain.screen.set_fill_color(Color.BLUE)
+                brain.screen.draw_rectangle(10, 150, 100, 50)
+            elif mode == 5:
+                brain.screen.set_fill_color(Color.BLUE)
+                brain.screen.draw_rectangle(300, 150, 100, 50)
+            wait(0.5, SECONDS)
+        wait(0.1, SECONDS)
+
 ALLIANCE_COLOR = "RED" # "RED" or "BLUE"
 
 def pre_autonomous():
@@ -380,6 +414,8 @@ def pre_autonomous():
 
     enable_color_sort(False)
     initialization_complete = True
+
+    pre_auton_UI()
 
 def drivetrain_max_speeds(motor_speed_rpm, wheel_size_mm, gear_ratio):
     '''
@@ -693,7 +729,7 @@ def auton5(tracker: Tracking):
 
     print_tracker(tracker)
 
-    distance, heading = tracker.trajectory_to_point(x=100, y=0)
+    distance, heading = tracker.trajectory_to_point(x=100, y=0, reverse=False)
     drivetrain.drive_straight_for(FORWARD, 100.0, MM, heading=0.0)
     drivetrain.turn_to_heading(90)
     drivetrain.turn_to_heading(0)
@@ -702,6 +738,8 @@ def auton5(tracker: Tracking):
     print_tracker(tracker)
 
 def autonomous():
+    global ROBOT_IS_ENABLED
+    ROBOT_IS_ENABLED = True
     # wait for initialization code
     while (not initialization_complete or tests_running):
         wait(10, MSEC)
@@ -728,8 +766,8 @@ def autonomous():
     # auto2()
     # auto3(tracker)
     # auto4_drive_to_points(tracker)    
-    auto4_match(tracker)
-    # auton5(tracker)
+    # auto4_match(tracker)
+    auton5(tracker)
 
     print_tracker(tracker)
     
@@ -876,6 +914,8 @@ def OnButtonXPressed():
         color_sort_enabled = True
 
 def user_control():
+    global ROBOT_IS_ENABLED
+    ROBOT_IS_ENABLED = True
     # wait for initialization code
     while (not initialization_complete or tests_running):
         wait(10, MSEC)

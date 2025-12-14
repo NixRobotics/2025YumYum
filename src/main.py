@@ -729,11 +729,37 @@ def auton5(tracker: Tracking):
 
     print_tracker(tracker)
 
-    distance, heading = tracker.trajectory_to_point(x=100, y=0, reverse=False)
-    drivetrain.drive_straight_for(FORWARD, 100.0, MM, heading=0.0)
-    drivetrain.turn_to_heading(90)
-    drivetrain.turn_to_heading(0)
-    drivetrain.drive_straight_for(REVERSE, 100.0, MM, heading=0.0)
+    x_start = 600.0 - 16.75 * 25.4
+    y_start = 1200.0 + 8.0 * 25.4
+
+    points = [
+        [x_start, y_start, False], # start point
+        [900.0, y_start, False],
+
+        [1453.0, 1448.0, True], # align to center goal 
+        [1619.0, 1580.0, True], # center goal - 1600,1590
+        
+        [600.0, 614.0, False], # Align with hopper
+        [413.0, 614.0, False], # hopper 600 - 6.75 * 25.4, dot on
+        [1179.0-95.0, 600.0, True]
+        
+    ]
+    start_point = points.pop(0)
+    tracker.set_orientation(Tracking.Orientation(start_point[0], start_point[1], 0.0))
+
+    for point in points:
+        x = point[0]
+        y = point[1]
+        rev = point[2]
+
+        distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+        drivetrain.turn_to_heading(heading)
+        drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
+    
+
+    #drivetrain.turn_to_heading(90)
+    #drivetrain.turn_to_heading(0)
+    #drivetrain.drive_straight_for(REVERSE, 100.0, MM, heading=0.0)
 
     print_tracker(tracker)
 

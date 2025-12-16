@@ -376,12 +376,21 @@ def pre_auton_UI():
                 brain.screen.set_fill_color(Color.BLUE)
                 brain.screen.draw_rectangle(300, 150, 100, 50)
             wait(0.5, SECONDS)
-        wait(0.1, SECONDS)
+        wait(0.01, SECONDS)
+    return mode
 
-ALLIANCE_COLOR = "RED" # "RED" or "BLUE"
+ALLIANCE_COLOR_BLUE = 0
+ALLIANCE_COLOR_RED = 1
+ALLIANCE_COLOR = ALLIANCE_COLOR_RED # Default for skills
+
+SEQUENCE_MATCH_NOAUTON = 0
+SEQUENCE_SKILLS = 1
+SEQUENCE_LEFT_MATCH = 2
+SEQUENCE_RIGHT_MATCH = 3
+SEQUENCE = SEQUENCE_MATCH_NOAUTON
 
 def pre_autonomous():
-    global initialization_complete, ALLIANCE_COLOR
+    global initialization_complete, ALLIANCE_COLOR, SEQUENCE
     # actions to do when the program starts
     # wait a bit before doing anything to let devices initialize
     print("pre-auton code")
@@ -415,7 +424,25 @@ def pre_autonomous():
     enable_color_sort(False)
     initialization_complete = True
 
-    pre_auton_UI()
+    mode = pre_auton_UI()
+    if mode == 0:
+        ALLIANCE_COLOR = ALLIANCE_COLOR_RED
+        SEQUENCE = SEQUENCE_MATCH_NOAUTON
+    elif mode == 1:
+        ALLIANCE_COLOR = ALLIANCE_COLOR_RED
+        SEQUENCE = SEQUENCE_SKILLS
+    elif mode == 2:
+        ALLIANCE_COLOR = ALLIANCE_COLOR_RED
+        SEQUENCE = SEQUENCE_LEFT_MATCH
+    elif mode == 3:
+        ALLIANCE_COLOR = ALLIANCE_COLOR_RED
+        SEQUENCE = SEQUENCE_RIGHT_MATCH 
+    elif mode == 4:
+        ALLIANCE_COLOR = ALLIANCE_COLOR_BLUE
+        SEQUENCE = SEQUENCE_LEFT_MATCH
+    elif mode == 5:
+        ALLIANCE_COLOR = ALLIANCE_COLOR_BLUE
+        SEQUENCE = SEQUENCE_RIGHT_MATCH
 
 def drivetrain_max_speeds(motor_speed_rpm, wheel_size_mm, gear_ratio):
     '''

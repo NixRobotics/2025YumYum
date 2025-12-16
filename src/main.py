@@ -12,7 +12,20 @@
 # Library imports
 from vex import *
 from math import pi, cos, sin, radians, degrees
+#from enum import Enum
 from v5pythonlibrary import *
+
+class AllianceColor():
+    RED = 0
+    BLUE = 1
+ALLIANCE_COLOR = AllianceColor.RED
+
+class AutonSequence():
+    SKILLS = 0
+    MATCH_LEFT = 1
+    MATCH_NONE = 2
+    MATCH_RIGHT = 3
+AUTON_SEQUENCE = AutonSequence.SKILLS
 
 # declare devices
 brain = Brain()
@@ -222,7 +235,7 @@ SHOOTER_MAX_UP = 100
 SHOOTER_MAX_DOWN = -100
 
 # individual control functions
-def run_intake(bIntake):
+def run_intake(bIntake, speed = 1.0):
     global ramp_speed
     if ((bIntake and ramp_speed == RAMP_MAX_EJECT) or (not bIntake and ramp_speed == RAMP_MAX_INTAKE)):
         print("reversing intake")
@@ -230,21 +243,21 @@ def run_intake(bIntake):
         wait(0.1, SECONDS) # wait for intake to slow before reversing direction
     if bIntake: ramp_speed = RAMP_MAX_INTAKE
     else: ramp_speed = RAMP_MAX_EJECT
-    ramp_motor.spin(REVERSE, ramp_speed, PERCENT)
+    ramp_motor.spin(REVERSE, ramp_speed * speed, PERCENT)
 
 def stop_intake():
     global ramp_speed
     ramp_speed = 0
     ramp_motor.stop(COAST)
 
-def run_shooter(bUp):
+def run_shooter(bUp, speed = 1.0):
     global shooter_speed
     if (shooter_speed != 0):
         stop_shooter()
         wait(0.1, SECONDS) # wait for conveyor to slow before reversing direction
     if bUp: shooter_speed = SHOOTER_MAX_UP
     else: shooter_speed = SHOOTER_MAX_DOWN
-    shooter_motor.spin(FORWARD, shooter_speed, PERCENT)
+    shooter_motor.spin(FORWARD, shooter_speed * speed, PERCENT)
 
 def stop_shooter():
     global shooter_speed
@@ -286,8 +299,10 @@ COLOR_BLUE_MIN = 200
 COLOR_BLUE_MAX = 230
 COLOR_RED_MIN = 0
 COLOR_RED_MAX = 20
-DETECT_BLUE = 0
-DETECT_RED = 1
+
+class DetectColor():
+    BLUE = 0
+    RED = 1
 
 def detect_color(sensor: Optical, color: int):
     '''
@@ -298,7 +313,7 @@ def detect_color(sensor: Optical, color: int):
     :param color: color to detect (DETECT_BLUE or DETECT_RED)
     :type color: int
     '''
-    if color == DETECT_BLUE:
+    if color == DetectColor.BLUE:
         color_min = COLOR_BLUE_MIN
         color_max = COLOR_BLUE_MAX
     else:
@@ -317,12 +332,13 @@ color_sort_shooter_speed = 0
 
 def color_sort():
     global color_sort_valid, color_sort_valid_count, color_sort_shooter_speed
-    if detect_color(color1, DETECT_BLUE) or detect_color(color2, DETECT_BLUE):
+    reject_color = DetectColor.RED if ALLIANCE_COLOR == AllianceColor.BLUE else DetectColor.BLUE
+    if detect_color(color1, reject_color) or detect_color(color2, reject_color):
         if not color_sort_valid:
-            ramp_solenoid.set(1)
+            open_trapdoor()
             color_sort_shooter_speed = shooter_speed
             shooter_motor.stop(COAST)
-            print("Blue detected")
+            print("Reject color detected", reject_color)
         color_sort_valid = True
         color_sort_valid_count = 0
 
@@ -330,58 +346,114 @@ def color_sort():
         if color_sort_valid_count < 15:
             color_sort_valid_count += 1
         else:
-            ramp_solenoid.set(0)
+            close_trapdoor()
             shooter_motor.spin(FORWARD, color_sort_shooter_speed, PERCENT)
             color_sort_valid = False
-            print("Blue lost")
+            print("reject color lost")
 
 def stop_on_color():
     global color_sort_valid, color_sort_valid_count, color_sort_shooter_speed
-    if detect_color(color1, DETECT_BLUE) or detect_color(color2, DETECT_BLUE):
+    reject_color = DetectColor.RED if ALLIANCE_COLOR == AllianceColor.BLUE else DetectColor.BLUE
+    if detect_color(color1, reject_color) or detect_color(color2, reject_color):
         stop_intake()
         stop_shooter()
 
 # ------------------------------------------------------------ #
 ### AUTONOMOUS ###
 
+# This gets set when either autonomous or driver control starts.
+# We use this to drop out of the UI
 ROBOT_IS_ENABLED = False
 
 def pre_auton_UI():
+    global ALLIANCE_COLOR, AUTON_SEQUENCE
+    
+    # set default mode for UI based on selection at top of file
     mode = 0
-    brain.screen.clear_screen()
-    brain.screen.set_fill_color(Color.BLACK)
-    brain.screen.draw_rectangle(10, 10, 100, 50)
+    if (AUTON_SEQUENCE == AutonSequence.SKILLS):
+        mode = 0
+    elif (AUTON_SEQUENCE == AutonSequence.MATCH_LEFT):
+        mode = 1 if (ALLIANCE_COLOR == AllianceColor.RED) else 4
+    elif (AUTON_SEQUENCE == AutonSequence.MATCH_NONE):
+        mode = 2 if (ALLIANCE_COLOR == AllianceColor.RED) else 5
+    elif (AUTON_SEQUENCE == AutonSequence.MATCH_RIGHT):
+        mode = 3 if (ALLIANCE_COLOR == AllianceColor.RED) else 6
+
+    redraw = True
+    first_run = True
+    # repeat while robot is not enabled
     while not ROBOT_IS_ENABLED:
-        if brain.screen.pressing():
-            mode += 1
-            if mode > 5:
-                mode = 0
+        # redraw if this is the first run or mode has changed
+        if redraw:
+            redraw = False
             brain.screen.clear_screen()
             if mode == 0:
-                brain.screen.set_fill_color(Color.BLACK)
-                brain.screen.draw_rectangle(10, 10, 100, 50)
-            elif mode == 1:
+                brain.screen.set_pen_color(Color.GREEN)
+                brain.screen.set_pen_width(10)
                 brain.screen.set_fill_color(Color.GREEN)
-                brain.screen.draw_rectangle(300, 10, 100, 50)
-            elif mode == 2:
+                brain.screen.draw_rectangle(10, 10, 100, 50)
+                ALLIANCE_COLOR = AllianceColor.RED
+                AUTON_SEQUENCE = AutonSequence.SKILLS
+            elif mode == 1:
+                brain.screen.set_pen_color(Color.RED)
+                brain.screen.set_pen_width(10)
                 brain.screen.set_fill_color(Color.RED)
                 brain.screen.draw_rectangle(10, 75, 100, 50)
+                ALLIANCE_COLOR = AllianceColor.RED
+                AUTON_SEQUENCE = AutonSequence.MATCH_LEFT
+            elif mode == 2:
+                brain.screen.set_pen_color(Color.RED)
+                brain.screen.set_pen_width(10)
+                brain.screen.set_fill_color(Color.BLACK)
+                brain.screen.draw_rectangle(190, 75, 100, 50)
+                ALLIANCE_COLOR = AllianceColor.RED
+                AUTON_SEQUENCE = AutonSequence.MATCH_NONE
             elif mode == 3:
+                brain.screen.set_pen_color(Color.RED)
+                brain.screen.set_pen_width(10)
                 brain.screen.set_fill_color(Color.RED)
-                brain.screen.draw_rectangle(300, 75, 100, 50)
+                brain.screen.draw_rectangle(370, 75, 100, 50)
+                ALLIANCE_COLOR = AllianceColor.RED
+                AUTON_SEQUENCE = AutonSequence.MATCH_RIGHT
             elif mode == 4:
+                brain.screen.set_pen_color(Color.BLUE)
+                brain.screen.set_pen_width(10)
                 brain.screen.set_fill_color(Color.BLUE)
                 brain.screen.draw_rectangle(10, 150, 100, 50)
+                ALLIANCE_COLOR = AllianceColor.BLUE
+                AUTON_SEQUENCE = AutonSequence.MATCH_LEFT
             elif mode == 5:
+                brain.screen.set_pen_color(Color.BLUE)
+                brain.screen.set_pen_width(10)
+                brain.screen.set_fill_color(Color.BLACK)
+                brain.screen.draw_rectangle(190, 150, 100, 50)
+                ALLIANCE_COLOR = AllianceColor.BLUE
+                AUTON_SEQUENCE = AutonSequence.MATCH_NONE
+            elif mode == 6:
+                brain.screen.set_pen_color(Color.BLUE)
+                brain.screen.set_pen_width(10)
                 brain.screen.set_fill_color(Color.BLUE)
-                brain.screen.draw_rectangle(300, 150, 100, 50)
-            wait(0.5, SECONDS)
-        wait(0.1, SECONDS)
+                brain.screen.draw_rectangle(370, 150, 100, 50)
+                ALLIANCE_COLOR = AllianceColor.BLUE
+                AUTON_SEQUENCE = AutonSequence.MATCH_RIGHT
 
-ALLIANCE_COLOR = "RED" # "RED" or "BLUE"
+            # If we are redrawing (and not furst run), then add a debounce    
+            if not first_run:
+                wait(0.5, SECONDS) # debounce
+            first_run = False
+
+        wait(0.01, SECONDS)
+
+        # Check if screen was pressed somewhere
+        if brain.screen.pressing():
+            mode += 1
+            redraw = True
+            if mode > 6:
+                mode = 0
+
 
 def pre_autonomous():
-    global initialization_complete, ALLIANCE_COLOR
+    global initialization_complete
     # actions to do when the program starts
     # wait a bit before doing anything to let devices initialize
     print("pre-auton code")
@@ -398,24 +470,19 @@ def pre_autonomous():
             wait(10, TimeUnits.MSEC)
 
     # start background threads
-    motor_monitor_thread = Thread(MotorMonitor.motor_monitor_thread)
     initialize_tracker()
-    enable_color_sort(True)
 
     wait(0.1, SECONDS)
 
     print("a piston: ", flippy_solenoid.value())
     print("b piston: ", ramp_solenoid.value())
-    if detect_color(color1, DETECT_BLUE) or detect_color(color2, DETECT_BLUE):
-        print("BLUE")
-        brain.screen.set_cursor(2,1)
-        brain.screen.print("BLUE DETECTED")
-        ALLIANCE_COLOR = "BLUE" # default to red if blue detected
 
-    enable_color_sort(False)
     initialization_complete = True
 
     pre_auton_UI()
+
+    # start motor monitor after pre-auton UI is done
+    motor_monitor_thread = Thread(MotorMonitor.motor_monitor_thread)
 
 def drivetrain_max_speeds(motor_speed_rpm, wheel_size_mm, gear_ratio):
     '''
@@ -431,19 +498,6 @@ def drivetrain_max_speeds(motor_speed_rpm, wheel_size_mm, gear_ratio):
     turn_speed = 2.0 # hack this for now
 
     return linear_speed, turn_speed
-
-def auto1():
-    print("auto1")
-    # gear ratio over circumference
-    # for each rev of the motor mutliply by the grear ratio times circumfrence    
-    distance_per_rev = DRIVETRAIN_GEAR_RATIO * DRIVETRAIN_WHEEL_SIZE # this is going to be in MM
-    
-    left_motor_group.spin_for(FORWARD, 6.0 * 25.4 /distance_per_rev, RotationUnits.REV, 25, PERCENT, wait=False)
-    right_motor_group.spin_for(FORWARD, 6.0 * 25.4/ distance_per_rev, RotationUnits.REV, 25, PERCENT, wait=False)
-    wait(1,SECONDS)
-
-    left_motor_group.stop(COAST)
-    right_motor_group.stop(COAST)
 
 def auto2():
     print("auto2")
@@ -707,6 +761,10 @@ def auto4_match(tracker: Tracking):
 
 def auton_match_left(tracker: Tracking):
     print("auton_match_left")
+    brain.screen.print("auton_match_left")
+    brain.screen.new_line()
+
+    reject_color = DetectColor.RED if ALLIANCE_COLOR == AllianceColor.BLUE else DetectColor.BLUE
 
     drive_speed = 50 # PERCENT
     turn_speed = 40 # PERCENT
@@ -755,11 +813,15 @@ def auton_match_left(tracker: Tracking):
         y = point[1]
         rev = point[2]
 
+        # Turn phase
         distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
-        drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
         turn_timeout = 1.0 # HACK
         drivetrain.set_timeout(turn_timeout, SECONDS)
         drivetrain.turn_to_heading(heading)
+
+        # Drive phase
+        distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+        drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
         drivetrain.set_timeout(drive_timeout, SECONDS)
         drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
     
@@ -779,21 +841,20 @@ def auton_match_left(tracker: Tracking):
         if i == 5:
             enable_color_sort(True)
             run_shooter(True)
-            while not detect_color(color1, DETECT_BLUE) and not detect_color(color2, DETECT_BLUE):
+            while not detect_color(color1, reject_color) and not detect_color(color2, reject_color):
                 wait(10, MSEC)
             wait(0.2, SECONDS)
             stop_shooter()
 
         i += 1
 
-    #drivetrain.turn_to_heading(90)
-    #drivetrain.turn_to_heading(0)
-    #drivetrain.drive_straight_for(REVERSE, 100.0, MM, heading=0.0)
-
     print_tracker(tracker)
 
 def auton_match_right(tracker: Tracking):
     print("auton_match_right")
+    brain.screen.print("auton_match_right")
+    brain.screen.new_line()
+    reject_color = DetectColor.RED if ALLIANCE_COLOR == AllianceColor.BLUE else DetectColor.BLUE
 
     drive_speed = 50 # PERCENT
     turn_speed = 40 # PERCENT
@@ -826,7 +887,10 @@ def auton_match_right(tracker: Tracking):
         [1250.0, 3600.0 - 1250.0, False], # 1: pick up 3 balls
         [1200.0, 3600.0 - 1200.0, True], # 2: align to center goak
 
-        [1360.0, 3600.0 - 1360.0, False], # 3: center goal - 1600,1590
+        # Actual location we want is 150+95 = 245mm NW of tile boundary
+        # Pythag gives us 173, 173 mm from tile intersection
+        # Or 1373, 1373 from origin
+        [1373.0, 3600.0 - 1373.0, False], # 3: center goal - 1600,1590
         
         [600.0, 3600.0 - 584.0, True], # 4: Align with hopper
         [403.0, 3600.0 - 584.0, False], # 5: hopper 600 - 6.75 * 25.4, dot on
@@ -844,20 +908,24 @@ def auton_match_right(tracker: Tracking):
         y = point[1]
         rev = point[2]
 
+        # Turn phase
         distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
-        drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
         turn_timeout = 1.0 # HACK
         drivetrain.set_timeout(turn_timeout, SECONDS)
         drivetrain.turn_to_heading(heading)
+
+        # Drive phase
+        distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+        drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
         drivetrain.set_timeout(drive_timeout, SECONDS)
         drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
     
         # do action
 
-        if i == 3:
+        if i == 3: # score center goal
             drivetrain.set_timeout(1.0, SECONDS)
             drivetrain.turn_to_heading(315.0, DEGREES)
-            run_intake(False)
+            run_intake(False, 0.5)
             wait(3.0, SECONDS)
 
         if i == 4:
@@ -870,18 +938,29 @@ def auton_match_right(tracker: Tracking):
         if i == 6:
             enable_color_sort(True)
             run_shooter(True)
-            while not detect_color(color1, DETECT_BLUE) and not detect_color(color2, DETECT_BLUE):
+            while not detect_color(color1, reject_color) and not detect_color(color2, reject_color):
                 wait(10, MSEC)
             wait(0.2, SECONDS)
             stop_shooter()
 
         i += 1
 
-    #drivetrain.turn_to_heading(90)
-    #drivetrain.turn_to_heading(0)
-    #drivetrain.drive_straight_for(REVERSE, 100.0, MM, heading=0.0)
-
     print_tracker(tracker)
+
+def auton_match_none():
+    print("auton_match_none")
+    brain.screen.print("auton_match_none")
+    brain.screen.new_line()
+    # gear ratio over circumference
+    # for each rev of the motor mutliply by the grear ratio times circumfrence    
+    distance_per_rev = DRIVETRAIN_GEAR_RATIO * DRIVETRAIN_WHEEL_SIZE # this is going to be in MM
+    
+    left_motor_group.spin_for(FORWARD, 6.0 * 25.4 /distance_per_rev, RotationUnits.REV, 25, PERCENT, wait=False)
+    right_motor_group.spin_for(FORWARD, 6.0 * 25.4/ distance_per_rev, RotationUnits.REV, 25, PERCENT, wait=False)
+    wait(1,SECONDS)
+
+    left_motor_group.stop(COAST)
+    right_motor_group.stop(COAST)
 
 def autonomous():
     global ROBOT_IS_ENABLED
@@ -893,12 +972,17 @@ def autonomous():
     print("autonomous code")
     brain.screen.clear_screen()
     brain.screen.set_cursor(1,1)
-    brain.screen.print("autonomous code", ALLIANCE_COLOR)
+    brain.screen.print("Alliance color", "RED" if ALLIANCE_COLOR == AllianceColor.RED else "BLUE")
     brain.screen.new_line()
+    brain.screen.print("Sequence:", AUTON_SEQUENCE)
+    brain.screen.new_line()
+
     if (inertial_sensor.installed):
         brain.screen.print("GYRO OK")
+        brain.screen.new_line()
     else:
         brain.screen.print("GYRO MISSING")
+        brain.screen.new_line()
 
     if tracker is None:
         raise RuntimeError("Tracker not initialized")
@@ -913,8 +997,17 @@ def autonomous():
     # auto3(tracker)
     # auto4_drive_to_points(tracker)    
     # auto4_match(tracker)
-    #auton_match_left(tracker)
-    auton_match_right(tracker)
+    # auton_match_left(tracker)
+    # auton_match_right(tracker)
+
+    if AUTON_SEQUENCE == AutonSequence.SKILLS:
+        auton_match_left(tracker)
+    elif AUTON_SEQUENCE == AutonSequence.MATCH_LEFT:
+        auton_match_left(tracker)
+    elif AUTON_SEQUENCE == AutonSequence.MATCH_RIGHT:
+        auton_match_right(tracker)
+    elif AUTON_SEQUENCE == AutonSequence.MATCH_NONE:
+        auton_match_none()
 
     print_tracker(tracker)
     
@@ -1075,7 +1168,10 @@ def user_control():
     print("driver control")
     brain.screen.clear_screen()
     brain.screen.set_cursor(1,1)
-    brain.screen.print("driver control", ALLIANCE_COLOR)
+    brain.screen.print("Driver control")
+    brain.screen.new_line()
+    brain.screen.print("Alliance color", "RED" if ALLIANCE_COLOR == AllianceColor.RED else "BLUE")
+    brain.screen.new_line()
 
     # events
     controller_1.buttonR1.pressed(OnButtonR1Pressed) # Intake

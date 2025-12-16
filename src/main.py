@@ -376,21 +376,12 @@ def pre_auton_UI():
                 brain.screen.set_fill_color(Color.BLUE)
                 brain.screen.draw_rectangle(300, 150, 100, 50)
             wait(0.5, SECONDS)
-        wait(0.01, SECONDS)
-    return mode
+        wait(0.1, SECONDS)
 
-ALLIANCE_COLOR_BLUE = 0
-ALLIANCE_COLOR_RED = 1
-ALLIANCE_COLOR = ALLIANCE_COLOR_RED # Default for skills
-
-SEQUENCE_MATCH_NOAUTON = 0
-SEQUENCE_SKILLS = 1
-SEQUENCE_LEFT_MATCH = 2
-SEQUENCE_RIGHT_MATCH = 3
-SEQUENCE = SEQUENCE_MATCH_NOAUTON
+ALLIANCE_COLOR = "RED" # "RED" or "BLUE"
 
 def pre_autonomous():
-    global initialization_complete, ALLIANCE_COLOR, SEQUENCE
+    global initialization_complete, ALLIANCE_COLOR
     # actions to do when the program starts
     # wait a bit before doing anything to let devices initialize
     print("pre-auton code")
@@ -424,25 +415,7 @@ def pre_autonomous():
     enable_color_sort(False)
     initialization_complete = True
 
-    mode = pre_auton_UI()
-    if mode == 0:
-        ALLIANCE_COLOR = ALLIANCE_COLOR_RED
-        SEQUENCE = SEQUENCE_MATCH_NOAUTON
-    elif mode == 1:
-        ALLIANCE_COLOR = ALLIANCE_COLOR_RED
-        SEQUENCE = SEQUENCE_SKILLS
-    elif mode == 2:
-        ALLIANCE_COLOR = ALLIANCE_COLOR_RED
-        SEQUENCE = SEQUENCE_LEFT_MATCH
-    elif mode == 3:
-        ALLIANCE_COLOR = ALLIANCE_COLOR_RED
-        SEQUENCE = SEQUENCE_RIGHT_MATCH 
-    elif mode == 4:
-        ALLIANCE_COLOR = ALLIANCE_COLOR_BLUE
-        SEQUENCE = SEQUENCE_LEFT_MATCH
-    elif mode == 5:
-        ALLIANCE_COLOR = ALLIANCE_COLOR_BLUE
-        SEQUENCE = SEQUENCE_RIGHT_MATCH
+    pre_auton_UI()
 
 def drivetrain_max_speeds(motor_speed_rpm, wheel_size_mm, gear_ratio):
     '''
@@ -732,8 +705,8 @@ def auto4_match(tracker: Tracking):
     wait(0.1, SECONDS)
     print_tracker(tracker, start_point[0], start_point[1])
 
-def auton5(tracker: Tracking):
-    print("auton5")
+def auton_match_left(tracker: Tracking):
+    print("auton_match_left")
 
     drive_speed = 50 # PERCENT
     turn_speed = 40 # PERCENT
@@ -761,28 +734,148 @@ def auton5(tracker: Tracking):
 
     points = [
         [x_start, y_start, False], # start point
-        [900.0, y_start, False],
+        [900.0, y_start, False], # 0
 
-        [1453.0, 1448.0, True], # align to center goal 
-        [1619.0, 1580.0, True], # center goal - 1600,1590
+        [1250.0, 1250.0, False], # 1: align to center goal 
+        [1619.0, 1580.0, True], # 2: center goal - 1600,1590
         
-        [600.0, 614.0, False], # Align with hopper
-        [413.0, 614.0, False], # hopper 600 - 6.75 * 25.4, dot on
-        [1179.0-95.0, 600.0, True]
+        [600.0, 614.0, False], # 3: Align with hopper
+        [403.0, 614.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
+        [1200.0-95.0, 590.0, True] # 5: score log goal
         
     ]
     start_point = points.pop(0)
     tracker.set_orientation(Tracking.Orientation(start_point[0], start_point[1], 0.0))
 
+    run_intake(True)
+
+    i = 0 
     for point in points:
         x = point[0]
         y = point[1]
         rev = point[2]
 
         distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+        drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
+        turn_timeout = 1.0 # HACK
+        drivetrain.set_timeout(turn_timeout, SECONDS)
         drivetrain.turn_to_heading(heading)
+        drivetrain.set_timeout(drive_timeout, SECONDS)
         drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
     
+        # do action
+
+        if i == 2:
+            open_trapdoor()
+            wait(3.0, SECONDS)
+            lower_flippy()
+
+        if i == 3:
+            close_trapdoor()
+
+        if i == 4:
+            wait(2.0, SECONDS)
+        
+        if i == 5:
+            enable_color_sort(True)
+            run_shooter(True)
+            while not detect_color(color1, DETECT_BLUE) and not detect_color(color2, DETECT_BLUE):
+                wait(10, MSEC)
+            wait(0.2, SECONDS)
+            stop_shooter()
+
+        i += 1
+
+    #drivetrain.turn_to_heading(90)
+    #drivetrain.turn_to_heading(0)
+    #drivetrain.drive_straight_for(REVERSE, 100.0, MM, heading=0.0)
+
+    print_tracker(tracker)
+
+def auton_match_right(tracker: Tracking):
+    print("auton_match_right")
+
+    drive_speed = 50 # PERCENT
+    turn_speed = 40 # PERCENT
+    linear_speed_mm_sec, turn_speed_rev_sec = drivetrain_max_speeds(600, DRIVETRAIN_WHEEL_SIZE, DRIVETRAIN_GEAR_RATIO)
+    linear_speed_mm_sec *= (drive_speed / 100)
+    turn_speed_rev_sec *= (turn_speed / 100)
+
+    drivetrain.set_drive_velocity(drive_speed, PERCENT)
+    drivetrain.set_drive_accleration(3, PERCENT)
+    drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
+    drivetrain.set_drive_threshold(5) # MM
+
+    drivetrain.set_turn_velocity(turn_speed, PERCENT)
+    drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
+    drivetrain.set_turn_threshold(1) # DEGREES
+
+    drivetrain.set_headling_lock_constants(Kp=5.0)
+
+    drivetrain.set_stopping(BrakeType.BRAKE)
+
+    print_tracker(tracker)
+
+    x_start = 600.0 - 16.75 * 25.4
+    y_start = 3600.0 - (1200.0 + 8.0 * 25.4)
+
+    points = [
+        [x_start, y_start, False], # start point
+        [900.0, y_start, False], # 0
+
+        [1250.0, 3600.0 - 1250.0, False], # 1: pick up 3 balls
+        [1200.0, 3600.0 - 1200.0, True], # 2: align to center goak
+
+        [1360.0, 3600.0 - 1360.0, False], # 3: center goal - 1600,1590
+        
+        [600.0, 3600.0 - 584.0, True], # 4: Align with hopper
+        [403.0, 3600.0 - 584.0, False], # 5: hopper 600 - 6.75 * 25.4, dot on
+        [1200.0-95.0, 3600.0 - 590.0, True] # 6: score log goal
+        
+    ]
+    start_point = points.pop(0)
+    tracker.set_orientation(Tracking.Orientation(start_point[0], start_point[1], 0.0))
+
+    run_intake(True)
+
+    i = 0 
+    for point in points:
+        x = point[0]
+        y = point[1]
+        rev = point[2]
+
+        distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+        drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
+        turn_timeout = 1.0 # HACK
+        drivetrain.set_timeout(turn_timeout, SECONDS)
+        drivetrain.turn_to_heading(heading)
+        drivetrain.set_timeout(drive_timeout, SECONDS)
+        drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
+    
+        # do action
+
+        if i == 3:
+            drivetrain.set_timeout(1.0, SECONDS)
+            drivetrain.turn_to_heading(315.0, DEGREES)
+            run_intake(False)
+            wait(3.0, SECONDS)
+
+        if i == 4:
+            lower_flippy()
+            run_intake(True)
+
+        if i == 5:
+            wait(2.0, SECONDS)
+        
+        if i == 6:
+            enable_color_sort(True)
+            run_shooter(True)
+            while not detect_color(color1, DETECT_BLUE) and not detect_color(color2, DETECT_BLUE):
+                wait(10, MSEC)
+            wait(0.2, SECONDS)
+            stop_shooter()
+
+        i += 1
 
     #drivetrain.turn_to_heading(90)
     #drivetrain.turn_to_heading(0)
@@ -820,7 +913,8 @@ def autonomous():
     # auto3(tracker)
     # auto4_drive_to_points(tracker)    
     # auto4_match(tracker)
-    auton5(tracker)
+    #auton_match_left(tracker)
+    auton_match_right(tracker)
 
     print_tracker(tracker)
     

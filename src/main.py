@@ -25,7 +25,7 @@ class AutonSequence():
     MATCH_LEFT = 1
     MATCH_NONE = 2
     MATCH_RIGHT = 3
-AUTON_SEQUENCE = AutonSequence.MATCH_LEFT
+AUTON_SEQUENCE = AutonSequence.SKILLS
 
 # declare devices
 brain = Brain()
@@ -546,7 +546,7 @@ def setup_drivetrain():
     drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
     drivetrain.set_turn_threshold(1) # DEGREES
 
-    drivetrain.set_headling_lock_constants(Kp=5.0)
+    drivetrain.set_headling_lock_constants(Kp=4.0)
 
     drivetrain.set_stopping(BrakeType.BRAKE)
 
@@ -1061,6 +1061,34 @@ def auton_match_none():
     left_motor_group.stop(COAST)
     right_motor_group.stop(COAST)
 
+def hopper_drain():
+    if (tracker is None):
+        return
+    
+    drivetrain.set_drive_velocity(50, PERCENT)
+
+
+    location = tracker.get_orientation()
+    start_x = location.x
+    target_x = 300.0
+    distance = abs(target_x - start_x)
+    drivetrain.drive_straight_for(FORWARD, distance, MM, heading=180.0)
+    
+    for i in range(3):
+        wait(0.5, SECONDS)
+        location = tracker.get_orientation()
+        start_x = location.x
+        target_x = 350.0
+        distance = abs(target_x - start_x)
+        drivetrain.drive_straight_for(REVERSE, distance, MM, heading=180.0)
+
+        location = tracker.get_orientation()
+        start_x = location.x
+        target_x = 400.0
+        distance = abs(target_x - start_x)
+        drivetrain.drive_straight_for(FORWARD, distance, MM, heading=180.0)
+
+
 def auton_skills(tracker: Tracking):
     print("auton_skills")
     brain.screen.print("auton_match_right")
@@ -1084,8 +1112,8 @@ def auton_skills(tracker: Tracking):
 
     print_tracker(tracker)
 
-    x_start = 600.0 - (16.25 - 2.5) * 25.4 # check
-    y_start = 3600 - (1200.0 + 6.5 * 25.4) # check
+    x_start = 600.0 - (14.5) * 25.4 # check
+    y_start = 3600 - (1200.0 + 5.5 * 25.4) # check
 
     points = [
         [x_start, y_start, False], # start point
@@ -1096,7 +1124,8 @@ def auton_skills(tracker: Tracking):
         [610.0, 3600.0 - 590.0, True], # 2: Align with hopper
         [1200.0-95.0+10.0, 3600.0 - 590.0, True], # 3: score long goal
 
-        [400.0, 3600.0 - 600.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
+        #[400.0, 3600.0 - 600.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
+        [500.0, 3600.0 - 600.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
         [1200.0-95.0 + 10.0, 3600.0 - 590.0, True], # 5: score long goal
 
         #starting left sequence
@@ -1164,7 +1193,8 @@ def auton_skills(tracker: Tracking):
             lower_flippy()
 
         if i == 4:
-            wait(3.0, SECONDS)
+            hopper_drain()
+            #wait(3.0, SECONDS)
         
         if i == 5:
             run_shooter(True)

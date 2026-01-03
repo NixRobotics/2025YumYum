@@ -25,7 +25,7 @@ class AutonSequence():
     MATCH_LEFT = 1
     MATCH_NONE = 2
     MATCH_RIGHT = 3
-AUTON_SEQUENCE = AutonSequence.SKILLS
+AUTON_SEQUENCE = AutonSequence.MATCH_LEFT
 
 # declare devices
 brain = Brain()
@@ -41,7 +41,7 @@ left_back_motor = Motor(Ports.PORT11, GearSetting.RATIO_6_1, True)
 right_front_motor = Motor(Ports.PORT18, GearSetting.RATIO_6_1, False)
 right_mid_motor = Motor(Ports.PORT19, GearSetting.RATIO_6_1, False)
 right_back_motor = Motor(Ports.PORT20, GearSetting.RATIO_6_1, False)
-DRIVETRAIN_WHEEL_SIZE = 260.0 # Wheel circumherence in MM
+DRIVETRAIN_WHEEL_SIZE = 257.83 # Wheel circumherence in MM
 DRIVETRAIN_TRACK_WIDTH = 320.0 # Not used
 DRIVETRAIN_WHEEL_BASE = 320.0 # Not used
 DRIVETRAIN_GEAR_RATIO = 36.0/48.0
@@ -53,7 +53,7 @@ GYRO_SCALE = (360.0 + 3.475) / 360.0# this is roughly how much robot over-turns 
 inertial_sensor = InertialWrapper(Ports.PORT16, GYRO_SCALE)
 
 flippy_solenoid = DigitalOut(brain.three_wire_port.h)
-ramp_solenoid = DigitalOut(brain.three_wire_port.g)
+trapdoor_solenoid = DigitalOut(brain.three_wire_port.g)
 
 color1 = Optical(Ports.PORT6)
 color2 = Optical(Ports.PORT7)
@@ -68,6 +68,9 @@ drivetrain = SmartDriveWrapper(left_motor_group, right_motor_group, inertial_sen
 
 # ------------------------------------------------------------ #
 # Motor Monitoring
+
+motor_monitor_refresh_UI = False
+
 class MotorMonitor:
     global left_front_motor, left_mid_motor, left_back_motor, right_front_motor, right_mid_motor, right_back_motor, ramp_motor, shooter_motor
 
@@ -151,12 +154,14 @@ class MotorMonitor:
 
     @staticmethod
     def motor_monitor_thread():
+        global motor_monitor_refresh_UI
         monitor = MotorMonitor()
         while(True):
             is_changed, motor_error, motor_is_cool, motor_is_warm, motor_is_hot = monitor.get_motor_status()
             # only call UI routines if status has changed
-            if (is_changed):
+            if (is_changed or motor_monitor_refresh_UI):
                 monitor.monitor_UI(motor_error, motor_is_cool, motor_is_warm, motor_is_hot)
+                motor_monitor_refresh_UI = False
             wait(2, TimeUnits.SECONDS)
 
 # ------------------------------------------------------------ #
@@ -170,11 +175,11 @@ if USING_TRACKING_WHEELS:
     rotation_strafe = Rotation(Ports.PORT7, False)
     all_sensors = [inertial_sensor, rotation_fwd, rotation_strafe]
 
-    ODOMETRY_FWD_SIZE = 218.344
-    ODOMETRY_FWD_OFFSET = 0.0316 * 25.4
+    ODOMETRY_FWD_SIZE = 219.70
+    ODOMETRY_FWD_OFFSET = 19.0
     ODOMETRY_FWD_GEAR_RATIO = 1.0
-    ODOMETRY_STRAFE_SIZE = 157.38
-    ODOMETRY_STRAFE_OFFSET = 4.526 * 25.4
+    ODOMETRY_STRAFE_SIZE = 0.0
+    ODOMETRY_STRAFE_OFFSET = 0.0
     ODOMETRY_STRAFE_GEAR_RATIO = 1.0
 
 else:
@@ -214,8 +219,10 @@ def initialize_tracker():
 def print_tracker(tracker: Tracking, x = 0.0, y = 0.0):
     orientation = tracker.get_orientation()
     origin_distance, origin_heading = tracker.trajectory_to_point(x, y)
+    back_x, back_y = tracker.point_on_robot(-160.0, -6.75 * 25.4)
     print("X: {:.1f} mm, Y: {:.1f} mm, Heading: {:.2f} deg".format(orientation.x, orientation.y, orientation.heading))
     print(" - To Point: Distance: {:.1f} mm, Heading: {:.2f} deg".format(origin_distance, origin_heading))
+    print(" - Back X: {:.1f} mm, Back Y: {:.1f} mm".format(back_x, back_y))
 
 # ------------------------------------------------------------ #
 ### ROBOT CONTROL FUNCTIONS ###
@@ -235,7 +242,7 @@ SHOOTER_MAX_UP = 100
 SHOOTER_MAX_DOWN = -100
 
 # individual control functions
-def run_intake(bIntake, speed = 1.0):
+def run_intake(bIntake, speed = 1.0, use_volt = False):
     global ramp_speed
     if ((bIntake and ramp_speed == RAMP_MAX_EJECT) or (not bIntake and ramp_speed == RAMP_MAX_INTAKE)):
         print("reversing intake")
@@ -243,7 +250,11 @@ def run_intake(bIntake, speed = 1.0):
         wait(0.1, SECONDS) # wait for intake to slow before reversing direction
     if bIntake: ramp_speed = RAMP_MAX_INTAKE
     else: ramp_speed = RAMP_MAX_EJECT
-    ramp_motor.spin(REVERSE, ramp_speed * speed, PERCENT)
+    if (use_volt):
+        volts = ramp_speed * speed * 12.0 / 100.0
+        ramp_motor.spin(REVERSE, volts, VoltageUnits.VOLT)
+    else:
+        ramp_motor.spin(REVERSE, ramp_speed * speed, PercentUnits.PERCENT)
 
 def stop_intake():
     global ramp_speed
@@ -266,13 +277,13 @@ def stop_shooter():
 
 # trapdoor control functions
 def open_trapdoor():
-    ramp_solenoid.set(1)
+    trapdoor_solenoid.set(1)
 
 def close_trapdoor():
-    ramp_solenoid.set(0)
+    trapdoor_solenoid.set(0)
 
 def trapdoor_is_open():
-    return ramp_solenoid.value() == 1
+    return trapdoor_solenoid.value() == 1
 
 # flippy control functions
 def raise_flippy():
@@ -286,6 +297,8 @@ def flippy_is_lowered():
 
 # ------------------------------------------------------------ #
 # Expermimental color sort function - only scores red right now (rejects blue)
+
+color_detect_count = 0
 
 def enable_color_sort(enable: bool):
     if not enable:
@@ -326,6 +339,12 @@ def detect_color(sensor: Optical, color: int):
         return True
     return False
 
+def detect_color_both_sensors(color: int):
+    if (color == DetectColor.RED):
+        return detect_color(color1, color) and detect_color(color2, color)
+    else:
+        return detect_color(color1, color) or detect_color(color2, color)
+
 color_sort_valid = False
 color_sort_valid_count = 0
 color_sort_shooter_speed = 0
@@ -333,7 +352,11 @@ color_sort_shooter_speed = 0
 def color_sort():
     global color_sort_valid, color_sort_valid_count, color_sort_shooter_speed
     reject_color = DetectColor.RED if ALLIANCE_COLOR == AllianceColor.BLUE else DetectColor.BLUE
-    if detect_color(color1, reject_color) or detect_color(color2, reject_color):
+
+    if (reject_color== DetectColor.RED) and (detect_color(color1, reject_color) and detect_color(color2, reject_color))\
+        or\
+        (reject_color == DetectColor.BLUE) and (detect_color(color1, reject_color) or detect_color(color2, reject_color)):
+
         if not color_sort_valid:
             open_trapdoor()
             color_sort_shooter_speed = shooter_speed
@@ -354,9 +377,23 @@ def color_sort():
 def stop_on_color():
     global color_sort_valid, color_sort_valid_count, color_sort_shooter_speed
     reject_color = DetectColor.RED if ALLIANCE_COLOR == AllianceColor.BLUE else DetectColor.BLUE
-    if detect_color(color1, reject_color) or detect_color(color2, reject_color):
+
+    detected = False
+    if reject_color == DetectColor.RED:
+        if detect_color(color1, reject_color) and detect_color(color2, reject_color):
+            detected = True
+
+    else:
+        if detect_color(color1, reject_color) or detect_color(color2, reject_color):
+            detected = True
+
+    if detected:
+        # wait(0.15, SECONDS)
         stop_intake()
         stop_shooter()
+        return True
+
+    return False
 
 # ------------------------------------------------------------ #
 ### AUTONOMOUS ###
@@ -451,7 +488,6 @@ def pre_auton_UI():
             if mode > 6:
                 mode = 0
 
-
 def pre_autonomous():
     global initialization_complete
     # actions to do when the program starts
@@ -462,6 +498,7 @@ def pre_autonomous():
     brain.screen.clear_screen()
     brain.screen.set_cursor(1,1)
     brain.screen.print("pre auton code")
+    brain.screen.new_line()
 
     # calibrate the inertial sensor
     if (inertial_sensor.installed):
@@ -475,7 +512,7 @@ def pre_autonomous():
     wait(0.1, SECONDS)
 
     print("a piston: ", flippy_solenoid.value())
-    print("b piston: ", ramp_solenoid.value())
+    print("b piston: ", trapdoor_solenoid.value())
 
     initialization_complete = True
 
@@ -498,6 +535,26 @@ def drivetrain_max_speeds(motor_speed_rpm, wheel_size_mm, gear_ratio):
     turn_speed = 2.0 # hack this for now
 
     return linear_speed, turn_speed
+
+def setup_drivetrain():
+    drivetrain.set_drive_velocity(5, PERCENT)
+    drivetrain.set_drive_accleration(3, PERCENT)
+    drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
+    drivetrain.set_drive_threshold(5) # MM
+
+    drivetrain.set_turn_velocity(40, PERCENT)
+    drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
+    drivetrain.set_turn_threshold(1) # DEGREES
+
+    drivetrain.set_headling_lock_constants(Kp=5.0)
+
+    drivetrain.set_stopping(BrakeType.BRAKE)
+
+def mid_goal_score():
+    run_shooter(True)
+    open_trapdoor()
+    wait(1.75, SECONDS)
+    stop_shooter()
 
 def auto2():
     print("auto2")
@@ -766,40 +823,35 @@ def auton_match_left(tracker: Tracking):
 
     reject_color = DetectColor.RED if ALLIANCE_COLOR == AllianceColor.BLUE else DetectColor.BLUE
 
+    setup_drivetrain()
     drive_speed = 50 # PERCENT
     turn_speed = 40 # PERCENT
     linear_speed_mm_sec, turn_speed_rev_sec = drivetrain_max_speeds(600, DRIVETRAIN_WHEEL_SIZE, DRIVETRAIN_GEAR_RATIO)
     linear_speed_mm_sec *= (drive_speed / 100)
     turn_speed_rev_sec *= (turn_speed / 100)
-
     drivetrain.set_drive_velocity(drive_speed, PERCENT)
-    drivetrain.set_drive_accleration(3, PERCENT)
-    drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
-    drivetrain.set_drive_threshold(5) # MM
-
     drivetrain.set_turn_velocity(turn_speed, PERCENT)
-    drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
-    drivetrain.set_turn_threshold(1) # DEGREES
 
-    drivetrain.set_headling_lock_constants(Kp=5.0)
+    drive_timer = Timer()
+    seq_start_time = drive_timer.time()
 
     drivetrain.set_stopping(BrakeType.BRAKE)
 
     print_tracker(tracker)
 
-    x_start = 600.0 - 16.75 * 25.4
-    y_start = 1200.0 + 8.0 * 25.4
+    x_start = 600.0 - (16.25 - 2.5) * 25.4
+    y_start = 1200.0 + (5.25) * 25.4
 
     points = [
         [x_start, y_start, False], # start point
         [900.0, y_start, False], # 0
 
         [1250.0, 1250.0, False], # 1: align to center goal 
-        [1619.0, 1580.0, True], # 2: center goal - 1600,1590
+        [1575.0, 1575.0, True], # 2: center goal - 1600,1590
         
-        [600.0, 614.0, False], # 3: Align with hopper
-        [403.0, 614.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
-        [1200.0-95.0, 590.0, True] # 5: score log goal
+        [600.0, 600.0, False], # 3: Align with hopper
+        [385.0, 600.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
+        [1200.0-95.0+20.0, 600.0, True] # 5: score long goal
         
     ]
     start_point = points.pop(0)
@@ -813,38 +865,65 @@ def auton_match_left(tracker: Tracking):
         y = point[1]
         rev = point[2]
 
-        # Turn phase
-        distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+        # pre actions
         turn_timeout = 1.0 # HACK
-        drivetrain.set_timeout(turn_timeout, SECONDS)
-        drivetrain.turn_to_heading(heading)
+
+        if i == 0:
+            drivetrain.set_drive_threshold(10.0) # MM
+
+        if i == 1:
+            drivetrain.set_drive_threshold(5.0) # MM
+            turn_timeout = 0.25
+
+        # Turn phase
+        # no turn coming out of parking
+        if i > 0:
+            distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+            drivetrain.set_timeout(turn_timeout, SECONDS)
+            drivetrain.turn_to_heading(heading)
+            #print_tracker(tracker, x, y)
 
         # Drive phase
         distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
         drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
+        #print("drive_timeout:", drive_timeout)
         drivetrain.set_timeout(drive_timeout, SECONDS)
+        start_time = drive_timer.system_high_res()
         drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
+        end_time = drive_timer.system_high_res()
+        drive_time = (end_time - start_time) / 1000000
+        #print("drive_time:", drive_time)
+        #print_tracker(tracker, x, y)
     
         # do action
 
         if i == 2:
-            open_trapdoor()
-            wait(3.0, SECONDS)
-            lower_flippy()
+            mid_goal_score()
 
         if i == 3:
             close_trapdoor()
+            run_intake(True, use_volt=True)
+            lower_flippy()
 
         if i == 4:
-            wait(2.0, SECONDS)
+            time_to_wait = 2.0 - drive_time
+            wait(time_to_wait, SECONDS)
         
         if i == 5:
             enable_color_sort(True)
             run_shooter(True)
-            while not detect_color(color1, reject_color) and not detect_color(color2, reject_color):
+            time_limit = False
+            while not detect_color_both_sensors(reject_color) and not time_limit:
                 wait(10, MSEC)
+                seq_stop_time = drive_timer.time()
+                seq_time = (seq_stop_time - seq_start_time) / 1000.0
+                if seq_time > 15.0:
+                    pass
+                    # time_limit = True
             wait(0.2, SECONDS)
             stop_shooter()
+            stop_intake()
+            enable_color_sort(False)
 
         i += 1
 
@@ -854,53 +933,47 @@ def auton_match_right(tracker: Tracking):
     print("auton_match_right")
     brain.screen.print("auton_match_right")
     brain.screen.new_line()
+
     reject_color = DetectColor.RED if ALLIANCE_COLOR == AllianceColor.BLUE else DetectColor.BLUE
 
+    setup_drivetrain()
     drive_speed = 50 # PERCENT
     turn_speed = 40 # PERCENT
     linear_speed_mm_sec, turn_speed_rev_sec = drivetrain_max_speeds(600, DRIVETRAIN_WHEEL_SIZE, DRIVETRAIN_GEAR_RATIO)
     linear_speed_mm_sec *= (drive_speed / 100)
     turn_speed_rev_sec *= (turn_speed / 100)
-
     drivetrain.set_drive_velocity(drive_speed, PERCENT)
-    drivetrain.set_drive_accleration(3, PERCENT)
-    drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
-    drivetrain.set_drive_threshold(5) # MM
-
     drivetrain.set_turn_velocity(turn_speed, PERCENT)
-    drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
-    drivetrain.set_turn_threshold(1) # DEGREES
-
-    drivetrain.set_headling_lock_constants(Kp=5.0)
 
     drivetrain.set_stopping(BrakeType.BRAKE)
 
+    
+    drive_timer = Timer()
+    seq_start_time = drive_timer.time()
+
     print_tracker(tracker)
 
-    x_start = 600.0 - 16.75 * 25.4
-    y_start = 3600.0 - (1200.0 + 8.0 * 25.4)
+
+    x_start = 600.0 - (16.25 - 2.5) * 25.4
+    y_start = 3600.0 - (1200.0 + (6.875 + 0.375) * 25.4)
 
     points = [
         [x_start, y_start, False], # start point
         [900.0, y_start, False], # 0
 
         [1250.0, 3600.0 - 1250.0, False], # 1: pick up 3 balls
-        [1200.0, 3600.0 - 1200.0, True], # 2: align to center goak
 
-        # Actual location we want is 150+95 = 245mm NW of tile boundary
-        # Pythag gives us 173, 173 mm from tile intersection
-        # Or 1373, 1373 from origin
-        [1373.0, 3600.0 - 1373.0, False], # 3: center goal - 1600,1590
-        
-        [600.0, 3600.0 - 584.0, True], # 4: Align with hopper
-        [403.0, 3600.0 - 584.0, False], # 5: hopper 600 - 6.75 * 25.4, dot on
-        [1200.0-95.0, 3600.0 - 590.0, True] # 6: score log goal
+        [610.0, 3600.0 - 590.0, True], # 2: Align with hopper
+        [1200.0-95.0+20.0, 3600.0 - 590.0, True], # 3: score long goal
+
+        [385.0, 3600.0 - 600.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
+        [1200.0-95.0+20.0, 3600.0 - 590.0, True] # 5: score long goal
         
     ]
     start_point = points.pop(0)
     tracker.set_orientation(Tracking.Orientation(start_point[0], start_point[1], 0.0))
 
-    run_intake(True)
+    run_intake(True, use_volt=True)
 
     i = 0 
     for point in points:
@@ -908,44 +981,70 @@ def auton_match_right(tracker: Tracking):
         y = point[1]
         rev = point[2]
 
-        # Turn phase
-        distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+       # pre actions
         turn_timeout = 1.0 # HACK
-        drivetrain.set_timeout(turn_timeout, SECONDS)
-        drivetrain.turn_to_heading(heading)
+
+        if i == 0:
+            drivetrain.set_drive_threshold(10.0) # MM
+
+        if i == 1:
+            drivetrain.set_drive_threshold(5.0) # MM
+            turn_timeout = 0.25
+
+        # Turn phase
+        # no turn coming out of parking
+        if i > 0:
+            distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+            drivetrain.set_timeout(turn_timeout, SECONDS)
+            drivetrain.turn_to_heading(heading)
+            #print_tracker(tracker, x, y)
 
         # Drive phase
         distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
         drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
+        #print("drive_timeout:", drive_timeout)
         drivetrain.set_timeout(drive_timeout, SECONDS)
+        start_time = drive_timer.system_high_res()
         drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
+        end_time = drive_timer.system_high_res()
+        drive_time = (end_time - start_time) / 1000000
+        print("drive_time:", drive_time)
+        #print_tracker(tracker, x, y)
     
         # do action
 
-        if i == 3: # score center goal
-            drivetrain.set_timeout(1.0, SECONDS)
-            drivetrain.turn_to_heading(315.0, DEGREES)
-            run_intake(False, 0.5)
-            wait(3.0, SECONDS)
+        if i == 3:
+            run_shooter(True)
+            wait(2.0, SECONDS)
+            stop_shooter()
+            lower_flippy()
 
         if i == 4:
-            lower_flippy()
-            run_intake(True)
-
-        if i == 5:
-            wait(2.0, SECONDS)
+            time_to_wait = 2.0  - drive_time
+            wait(time_to_wait, SECONDS)
         
-        if i == 6:
+        if i == 5:
             enable_color_sort(True)
             run_shooter(True)
-            while not detect_color(color1, reject_color) and not detect_color(color2, reject_color):
+            time_limit = False
+            while not detect_color_both_sensors(reject_color) and not time_limit:
                 wait(10, MSEC)
+                seq_stop_time = drive_timer.time()
+                seq_time = (seq_stop_time - seq_start_time) / 1000.0
+                if seq_time > 14.5:
+                    pass
+                    # time_limit = True
+
+            seq_stop_time = drive_timer.time()
+            print("Totoal Time", (seq_stop_time - seq_start_time) / 1000.0)
             wait(0.2, SECONDS)
             stop_shooter()
+            stop_intake()
+            enable_color_sort(False)
 
         i += 1
-
-    print_tracker(tracker)
+        
+        print_tracker(tracker)
 
 def auton_match_none():
     print("auton_match_none")
@@ -961,6 +1060,142 @@ def auton_match_none():
 
     left_motor_group.stop(COAST)
     right_motor_group.stop(COAST)
+
+def auton_skills(tracker: Tracking):
+    print("auton_skills")
+    brain.screen.print("auton_match_right")
+    brain.screen.new_line()
+
+    reject_color = DetectColor.BLUE
+
+    setup_drivetrain()
+    drive_speed = 33 # PERCENT
+    turn_speed = 50 # PERCENT
+    linear_speed_mm_sec, turn_speed_rev_sec = drivetrain_max_speeds(600, DRIVETRAIN_WHEEL_SIZE, DRIVETRAIN_GEAR_RATIO)
+    linear_speed_mm_sec *= (drive_speed / 100)
+    turn_speed_rev_sec *= (turn_speed / 100)
+    drivetrain.set_drive_velocity(drive_speed, PERCENT)
+    drivetrain.set_turn_velocity(turn_speed, PERCENT)
+
+    drivetrain.set_stopping(BrakeType.BRAKE)
+
+    drive_timer = Timer()
+    seq_start_time = drive_timer.time()
+
+    print_tracker(tracker)
+
+    x_start = 600.0 - (16.25 - 2.5) * 25.4 # check
+    y_start = 3600 - (1200.0 + 6.5 * 25.4) # check
+
+    points = [
+        [x_start, y_start, False], # start point
+        [850.0, y_start, False], # 0
+
+        [1200.0, 3600.0 - 1200.0, False], # 1: pick up 3 balls
+
+        [610.0, 3600.0 - 590.0, True], # 2: Align with hopper
+        [1200.0-95.0+10.0, 3600.0 - 590.0, True], # 3: score long goal
+
+        [400.0, 3600.0 - 600.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
+        [1200.0-95.0 + 10.0, 3600.0 - 590.0, True], # 5: score long goal
+
+        #starting left sequence
+        [610.0, 3600.0 - 590.0, False], # 6: Align with hopper
+
+        [900.0, 1800.0, False], # 7: Fake drive to match start point
+
+        [1200.0, 1200.0, False], # 8: pick up 3 balls
+        
+        [610.0, 590.0, True], # 9: Align with hopper
+        [1200.0-95.0+20.0, 590.0, True], # 10: score long goal
+
+        [385.0, 600.0, False], # 11: hopper 600 - 6.75 * 25.4, dot on
+        [1200.0-95.0+30.0, 590.0, True], # 12: score long goal
+        
+    ]
+    start_point = points.pop(0)
+    tracker.set_orientation(Tracking.Orientation(start_point[0], start_point[1], 0.0))
+
+    run_intake(True, use_volt=True)
+
+    i = 0 
+    for point in points:
+        x = point[0]
+        y = point[1]
+        rev = point[2]
+        print("----- MOVE", i, x, y)
+
+        # pre actions
+        turn_timeout = 1.0 # HACK
+
+        if i == 0:
+            drivetrain.set_drive_threshold(10.0) # MM
+
+        if i == 1:
+            drivetrain.set_drive_threshold(5.0) # MM
+            turn_timeout = 0.25
+
+        # Turn phase
+        # no turn coming out of parking
+        if i > 0:
+            distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+            drivetrain.set_timeout(turn_timeout, SECONDS)
+            drivetrain.turn_to_heading(heading)
+            #print_tracker(tracker, x, y)
+
+        # Drive phase
+        distance, heading = tracker.trajectory_to_point(x=x, y=y, reverse=rev)
+        drive_timeout = 1.0 + abs(distance / linear_speed_mm_sec) # convert to MM/s and pad with 1 sec
+        #print("drive_timeout:", drive_timeout)
+        drivetrain.set_timeout(drive_timeout, SECONDS)
+        start_time = drive_timer.system_high_res()
+        drivetrain.drive_straight_for(FORWARD, distance, MM, heading=heading)
+        end_time = drive_timer.system_high_res()
+        drive_time = (end_time - start_time) / 1000000
+        print("drive_time:", drive_time)
+        print_tracker(tracker, x, y)
+    
+        # do action
+
+        if i == 3:
+            run_shooter(True)
+            wait(5.0, SECONDS)
+            stop_shooter()
+            lower_flippy()
+
+        if i == 4:
+            wait(3.0, SECONDS)
+        
+        if i == 5:
+            run_shooter(True)
+            wait(6.0, SECONDS)
+            stop_shooter()
+            stop_intake()
+            raise_flippy()
+            # tracker.set_orientation(Tracking.Orientation(x=1200 - 80.0, y=3600 - 600.0, heading=None))
+
+        if i ==6:
+            run_intake(True)
+        
+        if i == 10:
+            run_shooter(True)
+            wait(5.0, SECONDS)
+            stop_shooter()
+            lower_flippy()
+        
+        if i == 11:
+            wait(3.0, SECONDS)
+
+        if i == 12:
+            run_shooter(True)
+            wait(6.0, SECONDS)
+            stop_shooter()
+            stop_intake()
+            raise_flippy()
+
+        i += 1
+
+        print_tracker(tracker)
 
 def autonomous():
     global ROBOT_IS_ENABLED
@@ -1001,7 +1236,7 @@ def autonomous():
     # auton_match_right(tracker)
 
     if AUTON_SEQUENCE == AutonSequence.SKILLS:
-        auton_match_left(tracker)
+        auton_skills(tracker)
     elif AUTON_SEQUENCE == AutonSequence.MATCH_LEFT:
         auton_match_left(tracker)
     elif AUTON_SEQUENCE == AutonSequence.MATCH_RIGHT:
@@ -1142,7 +1377,7 @@ def OnButtonBPressed():
 
 # Color sort toggle
 color_sort_enabled = False
-def OnButtonXPressed():
+def OnButtonLeftPressed():
     global color_sort_enabled
     if color_sort_enabled:
         print("color sort off")
@@ -1165,6 +1400,11 @@ def user_control():
     tracker.enable()
     # tracker.set_orientation(Tracking.Orientation(start_point[0], start_point[1], 0.0))
 
+    # clean-up from auton
+    enable_color_sort(False)
+    stop_intake()
+    stop_shooter()
+
     print("driver control")
     brain.screen.clear_screen()
     brain.screen.set_cursor(1,1)
@@ -1182,7 +1422,7 @@ def user_control():
     controller_1.buttonDown.pressed(OnButtonDownPressed) # Toggle full vs reduced speed
     controller_1.buttonA.pressed(OnButtonAPressed) # Toggle arm solenoid
     controller_1.buttonB.pressed(OnButtonBPressed) # Toggle trapdoor solenoid
-    controller_1.buttonX.pressed(OnButtonXPressed) # Toggle color sort
+    controller_1.buttonX.pressed(OnButtonLeftPressed) # Toggle color sort
 
     # drivetrain control
     driver_control = DriverControl(left_motor_group, right_motor_group, inertial_sensor)
@@ -1200,7 +1440,7 @@ def user_control():
         driver_control.user_drivetrain(controller_1.axis3.position(), controller_1.axis1.position())
         if color_sort_enabled and shooter_speed != 0:
             # stop_on_color()
-            color_sort()
+            stop_on_color()
         wait(10, MSEC) # DO NOT CHANGE
 
 # create competition instance

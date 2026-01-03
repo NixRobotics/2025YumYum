@@ -152,11 +152,14 @@ class Tracking:
     # It is assumed that encoders are configured correctly such that FORWARD motion is positive for both left and right encoders and RIGHT motiion
     # is positive to side/strafe encoder
 
-    Configuration = namedtuple('Configuration', [
-            'fwd_is_odom',
-            'fwd_wheel_size', 'fwd_gear_ratio', "fwd_offset",
-            'side_wheel_size', 'side_gear_ratio', 'side_offset'
-       ])
+    class Configuration:
+        def __init__(self,
+            fwd_is_odom,
+            fwd_wheel_size, fwd_gear_ratio, fwd_offset,
+            side_wheel_size, side_gear_ratio, side_offset):
+
+            pass
+
     
     # Encoder initializers
     # @param left is initial left encoder position in revolutions (either left motors or left odom wheek)
@@ -258,6 +261,17 @@ class Tracking:
         If "reverse" is True then distance will be negated and the heading will reflect the direction the\
         front of the robot needs to be pointing meaning heading-180
         '''
+        return 0.0, 0.0
+    
+    def point_on_robot(self, x: float, y: float):
+        '''
+        ### Given a point relative to the robot center, return the global coordinates of that point
+
+        :param x: X coordinate relative to robot tracking center in MM
+        :param y: Y coordinate relative to robot tracking center in MM
+        :returns: Global X, Y coordinates in MM
+        '''
+        
         return 0.0, 0.0
 
     @staticmethod
@@ -577,6 +591,30 @@ class SmartDriveWrapper(SmartDrive):
         :rtype: Any | Literal[True]
         '''
         return 0.0
+
+    def drive_to_point(self, x: float, y: float, direction, orientation_callback: Callable, wait = True):
+        '''
+        ### Drive robot to the x/y point in MM specified
+
+        A callback function must be provided that will return the current x,y and heading of the robot when called.\\
+        This function can drive forward or backward to the target point as specified by the direction parameter.\\
+        The function will return when the robot crosses a line perpendicular to the path to the target point or when the distance
+        error is within the settle error specified by set_drive_threshold(). Typically the line crossing will occur first so that
+        the robot position may not be quite as accurate as performing a turn followed by a drive. However this method is generally
+        much faster when chaining multiple drive_to_point commands together where intermeddiate accuracy is not so important.
+        
+        :param x: X (NORTH) coordinate of target point in MM
+        :type x: float
+        :param y: Y (EAST) coordinate of target point in MM
+        :type y: float
+        :param direction: FOWARD or REVERSE
+        :param orientation_callback: Callback function that returns current x,y,heading (in DEGREES) of the robot
+        :type orientation_callback: Callable
+        :param wait: When True (default) the function will wait for the command to complete before returning
+        :return: Time for command to complete in MS (if wait=True)
+        :rtype: Any | Literal[False]
+        '''
+        return 0
 
     def drive(self, direction, velocity=None, units:VelocityPercentUnits=VelocityUnits.RPM):
         '''

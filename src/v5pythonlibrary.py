@@ -160,7 +160,6 @@ class Tracking:
 
             pass
 
-    
     # Encoder initializers
     # @param left is initial left encoder position in revolutions (either left motors or left odom wheek)
     # @param right is initial right encoder position in revolutions (either right motors or right odom wheel)
@@ -173,12 +172,17 @@ class Tracking:
                  devices,
                  orientation: Union[Orientation, None] = None,
                  configuration: Union[Configuration, None] = None,
-                 initial_values: Union[EncoderValues, None] = None,
-                 initial_timestamps: Union[EncoderValues, None] = None):
+                 name: str = "Tracker"):
         pass
-    
-    def set_initial_values(self, initial_values: EncoderValues, initial_timestamps: EncoderValues):
-        pass
+
+    @property
+    def name(self):
+        '''
+        ### Docstring for name
+        
+        :returns: Name of tracker
+        '''
+        return ""
 
     def set_configuration(self, configuration: Configuration):
         '''

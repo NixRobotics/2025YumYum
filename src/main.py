@@ -211,7 +211,7 @@ def initialize_tracker():
     else:
         tracker_devices = [left_motor_group, right_motor_group, inertial_sensor]
 
-    tracker = Tracking(tracker_devices, starting_location, tracker_configuration, initial_values=None)
+    tracker = Tracking(tracker_devices, starting_location, tracker_configuration)
     tracker.enable_resampling(USING_RESAMPLING)
     # give tracker some time to get going
     wait(0.1, SECONDS)

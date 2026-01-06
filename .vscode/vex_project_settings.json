@@ -4,12 +4,12 @@
 		"json": 2
 	},
 	"project": {
-		"name": "RED_LEFT",
+		"name": "SKILLS",
 		"description": "",
 		"creationDate": "10/10/2025, 8:33:57 AM",
 		"platform": "V5",
 		"language": "python",
-		"slot": 2,
+		"slot": 1,
 		"sdkVersion": "V5_1_0_1_25",
 		"python": {
 			"main": "src/main.py"

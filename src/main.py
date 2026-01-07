@@ -1193,8 +1193,8 @@ def auton_skills(tracker: Tracking):
             lower_flippy()
 
         if i == 4:
-            hopper_drain()
-            #wait(3.0, SECONDS)
+            # hopper_drain()
+            wait(3.0, SECONDS)
         
         if i == 5:
             run_shooter(True)

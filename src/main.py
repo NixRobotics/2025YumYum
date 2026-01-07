@@ -1061,6 +1061,23 @@ def auton_match_none():
     left_motor_group.stop(COAST)
     right_motor_group.stop(COAST)
 
+def hopper_drain2():
+    if (tracker is None):
+        return
+    
+    distance = 100.0
+    wheel_turns = distance / (DRIVETRAIN_WHEEL_SIZE * DRIVETRAIN_GEAR_RATIO)
+    left_motor_group.spin_for(REVERSE, wheel_turns, RotationUnits.REV, 50, PERCENT, wait=False)
+    right_motor_group.spin_for(REVERSE, wheel_turns, RotationUnits.REV, 50, PERCENT, wait=True)
+    wait(0.25, SECONDS)
+    wheel_turns = distance / (DRIVETRAIN_WHEEL_SIZE * DRIVETRAIN_GEAR_RATIO)
+    left_motor_group.spin_for(FORWARD, wheel_turns, RotationUnits.REV, 50, PERCENT, wait=False)
+    right_motor_group.spin_for(FORWARD, wheel_turns, RotationUnits.REV, 50, PERCENT, wait=True)
+
+    while True: 
+        wait(0.25, SECONDS)
+
+
 def hopper_drain():
     if (tracker is None):
         return
@@ -1124,8 +1141,7 @@ def auton_skills(tracker: Tracking):
         [610.0, 3600.0 - 590.0, True], # 2: Align with hopper
         [1200.0-95.0+10.0, 3600.0 - 590.0, True], # 3: score long goal
 
-        #[400.0, 3600.0 - 600.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
-        [500.0, 3600.0 - 600.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
+        [400.0, 3600.0 - 600.0, False], # 4: hopper 600 - 6.75 * 25.4, dot on
         [1200.0-95.0 + 10.0, 3600.0 - 590.0, True], # 5: score long goal
 
         #starting left sequence
@@ -1193,7 +1209,7 @@ def auton_skills(tracker: Tracking):
             lower_flippy()
 
         if i == 4:
-            # hopper_drain()
+            hopper_drain2()
             wait(3.0, SECONDS)
         
         if i == 5:

@@ -15,16 +15,7 @@ from math import pi, cos, sin, radians, degrees
 #from enum import Enum
 from v5pythonlibrary import *
 
-class AllianceColor():
-    RED = 0
-    BLUE = 1
 ALLIANCE_COLOR = AllianceColor.RED
-
-class AutonSequence():
-    SKILLS = 0
-    MATCH_LEFT = 1
-    MATCH_NONE = 2
-    MATCH_RIGHT = 3
 AUTON_SEQUENCE = AutonSequence.SKILLS
 
 # declare devices
@@ -66,103 +57,20 @@ drivetrain = SmartDriveWrapper(left_motor_group, right_motor_group, inertial_sen
                                DistanceUnits.MM,
                                DRIVETRAIN_GEAR_RATIO)
 
+all_motors = [left_front_motor, left_mid_motor, left_back_motor,
+              right_front_motor, right_mid_motor, right_back_motor,
+              ramp_motor, shooter_motor]
+
+all_motor_names = ["left_front_motor", "left_mid_motor", "left_back_motor",
+                   "right_front_motor", "right_mid_motor", "right_back_motor",
+                   "ramp_motor", "shooter_motor"]
+
 # ------------------------------------------------------------ #
 # Motor Monitoring
+#------------------------------------------------------------ #
 
-motor_monitor_refresh_UI = False
-
-class MotorMonitor:
-    global left_front_motor, left_mid_motor, left_back_motor, right_front_motor, right_mid_motor, right_back_motor, ramp_motor, shooter_motor
-
-    # motors will slow down above certain temperatures
-    # vex defines warm as 50 percent and hot as 70 percent
-    MOTOR_HOT_TEMP = 70
-    MOTOR_WARM_TEMP = 60
-    MOTOR_COOL_TEMP = 50
-
-    MOTOR_STATUS_OK = 0
-    MOTOR_STATUS_NOT_PRESENT = 1
-    MOTOR_STATUS_COOL = 2
-    MOTOR_STATUS_WARM = 3
-    MOTOR_STATUS_HOT = 4
-
-    def __init__(self):
-        self.allmotors = [
-            left_front_motor, left_mid_motor, left_back_motor,
-            right_front_motor, right_mid_motor, right_back_motor,
-            ramp_motor, shooter_motor]
-        self.motor_names = [
-            "Left Front", "Left Mid", "Left Back",
-            "Right Front", "Right Mid", "Right Back",
-            "Ramp", "Shooter"]
-        self.motor_status = [
-            MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK,
-            MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK,
-            MotorMonitor.MOTOR_STATUS_OK, MotorMonitor.MOTOR_STATUS_OK]
-        self.previous_motor_status = self.motor_status.copy()
-        self.motor_status_names = ["OK", "NOT PRESENT", "OK FOR NOW", "WARM", "HOT"]
-
-    # this function checks the temperature of each motor and then returns two values: warm, hot
-    def get_motor_status(self):
-        # to make code simple we create a list of all the motors, then check each one
-        motor_error = False
-        motor_is_cool = False
-        motor_is_warm = False
-        motor_is_hot = False
-        for i in range(len(self.allmotors)):
-            motor = self.allmotors[i]
-            self.motor_status[i] = MotorMonitor.MOTOR_STATUS_OK # assume motor is ok
-            if (not motor.installed()):
-                self.motor_status[i] = MotorMonitor.MOTOR_STATUS_NOT_PRESENT
-                motor_error = True
-            elif motor.temperature(PERCENT) >= MotorMonitor.MOTOR_HOT_TEMP:
-                self.motor_status[i] = MotorMonitor.MOTOR_STATUS_HOT
-                motor_is_hot = True
-            elif motor.temperature(PERCENT) >= MotorMonitor.MOTOR_WARM_TEMP:
-                self.motor_status[i] = MotorMonitor.MOTOR_STATUS_WARM
-                motor_is_warm = True
-            elif motor.temperature(PERCENT) >= MotorMonitor.MOTOR_COOL_TEMP:
-                self.motor_status[i] = MotorMonitor.MOTOR_STATUS_COOL
-                motor_is_cool = True
-
-        is_changed = self.motor_status != self.previous_motor_status
-        self.previous_motor_status = self.motor_status.copy()
-
-        return is_changed, motor_error, motor_is_cool, motor_is_warm, motor_is_hot
-
-    # we run this in its own thread to monitor the temperature each second and change the color of the screen
-    # green is first warning
-    # blue is warm
-    # red is hot
-    def monitor_UI(self, motor_error, motor_is_cool, motor_is_warm, motor_is_hot):
-
-        if (motor_is_hot): brain.screen.clear_screen(Color.RED)
-        elif (motor_is_warm): brain.screen.clear_screen(Color.BLUE)
-        elif (motor_is_cool): brain.screen.clear_screen(Color.GREEN)
-        else: brain.screen.clear_screen(Color.BLACK)
-
-        if (motor_error or motor_is_hot or motor_is_warm or motor_is_cool):
-            brain.screen.set_cursor(1,1)
-            brain.screen.set_font(FontType.MONO20)
-            brain.screen.set_fill_color(Color.BLACK)
-            brain.screen.set_pen_color(Color.WHITE)
-            for i in range(len(self.allmotors)):
-                if (self.motor_status[i] != MotorMonitor.MOTOR_STATUS_OK):
-                    brain.screen.print(self.motor_names[i] + ": " + self.motor_status_names[self.motor_status[i]])
-                    brain.screen.new_line()
-            # brain.screen.render()
-
-    @staticmethod
-    def motor_monitor_thread():
-        global motor_monitor_refresh_UI
-        monitor = MotorMonitor()
-        while(True):
-            is_changed, motor_error, motor_is_cool, motor_is_warm, motor_is_hot = monitor.get_motor_status()
-            # only call UI routines if status has changed
-            if (is_changed or motor_monitor_refresh_UI):
-                monitor.monitor_UI(motor_error, motor_is_cool, motor_is_warm, motor_is_hot)
-                motor_monitor_refresh_UI = False
-            wait(2, TimeUnits.SECONDS)
+# see https://github.com/NixRobotics/V5PythonFramework/blob/main/src/motormonitor.py
+motor_monitor = None  # type: MotorMonitor | None
 
 # ------------------------------------------------------------ #
 # ROBOT POSITION TRACKING
@@ -402,94 +310,11 @@ def stop_on_color():
 # We use this to drop out of the UI
 ROBOT_IS_ENABLED = False
 
-def pre_auton_UI():
-    global ALLIANCE_COLOR, AUTON_SEQUENCE
-    
-    # set default mode for UI based on selection at top of file
-    mode = 0
-    if (AUTON_SEQUENCE == AutonSequence.SKILLS):
-        mode = 0
-    elif (AUTON_SEQUENCE == AutonSequence.MATCH_LEFT):
-        mode = 1 if (ALLIANCE_COLOR == AllianceColor.RED) else 4
-    elif (AUTON_SEQUENCE == AutonSequence.MATCH_NONE):
-        mode = 2 if (ALLIANCE_COLOR == AllianceColor.RED) else 5
-    elif (AUTON_SEQUENCE == AutonSequence.MATCH_RIGHT):
-        mode = 3 if (ALLIANCE_COLOR == AllianceColor.RED) else 6
-
-    redraw = True
-    first_run = True
-    # repeat while robot is not enabled
-    while not ROBOT_IS_ENABLED:
-        # redraw if this is the first run or mode has changed
-        if redraw:
-            redraw = False
-            brain.screen.clear_screen()
-            if mode == 0:
-                brain.screen.set_pen_color(Color.GREEN)
-                brain.screen.set_pen_width(10)
-                brain.screen.set_fill_color(Color.GREEN)
-                brain.screen.draw_rectangle(10, 10, 100, 50)
-                ALLIANCE_COLOR = AllianceColor.RED
-                AUTON_SEQUENCE = AutonSequence.SKILLS
-            elif mode == 1:
-                brain.screen.set_pen_color(Color.RED)
-                brain.screen.set_pen_width(10)
-                brain.screen.set_fill_color(Color.RED)
-                brain.screen.draw_rectangle(10, 75, 100, 50)
-                ALLIANCE_COLOR = AllianceColor.RED
-                AUTON_SEQUENCE = AutonSequence.MATCH_LEFT
-            elif mode == 2:
-                brain.screen.set_pen_color(Color.RED)
-                brain.screen.set_pen_width(10)
-                brain.screen.set_fill_color(Color.BLACK)
-                brain.screen.draw_rectangle(190, 75, 100, 50)
-                ALLIANCE_COLOR = AllianceColor.RED
-                AUTON_SEQUENCE = AutonSequence.MATCH_NONE
-            elif mode == 3:
-                brain.screen.set_pen_color(Color.RED)
-                brain.screen.set_pen_width(10)
-                brain.screen.set_fill_color(Color.RED)
-                brain.screen.draw_rectangle(370, 75, 100, 50)
-                ALLIANCE_COLOR = AllianceColor.RED
-                AUTON_SEQUENCE = AutonSequence.MATCH_RIGHT
-            elif mode == 4:
-                brain.screen.set_pen_color(Color.BLUE)
-                brain.screen.set_pen_width(10)
-                brain.screen.set_fill_color(Color.BLUE)
-                brain.screen.draw_rectangle(10, 150, 100, 50)
-                ALLIANCE_COLOR = AllianceColor.BLUE
-                AUTON_SEQUENCE = AutonSequence.MATCH_LEFT
-            elif mode == 5:
-                brain.screen.set_pen_color(Color.BLUE)
-                brain.screen.set_pen_width(10)
-                brain.screen.set_fill_color(Color.BLACK)
-                brain.screen.draw_rectangle(190, 150, 100, 50)
-                ALLIANCE_COLOR = AllianceColor.BLUE
-                AUTON_SEQUENCE = AutonSequence.MATCH_NONE
-            elif mode == 6:
-                brain.screen.set_pen_color(Color.BLUE)
-                brain.screen.set_pen_width(10)
-                brain.screen.set_fill_color(Color.BLUE)
-                brain.screen.draw_rectangle(370, 150, 100, 50)
-                ALLIANCE_COLOR = AllianceColor.BLUE
-                AUTON_SEQUENCE = AutonSequence.MATCH_RIGHT
-
-            # If we are redrawing (and not furst run), then add a debounce    
-            if not first_run:
-                wait(0.5, SECONDS) # debounce
-            first_run = False
-
-        wait(0.01, SECONDS)
-
-        # Check if screen was pressed somewhere
-        if brain.screen.pressing():
-            mode += 1
-            redraw = True
-            if mode > 6:
-                mode = 0
 
 def pre_autonomous():
     global initialization_complete
+    global motor_monitor
+    global ALLIANCE_COLOR, AUTON_SEQUENCE
     # actions to do when the program starts
     # wait a bit before doing anything to let devices initialize
     print("pre-auton code")
@@ -516,10 +341,16 @@ def pre_autonomous():
 
     initialization_complete = True
 
-    pre_auton_UI()
+    ui = PreAutonUI(brain, ALLIANCE_COLOR, AUTON_SEQUENCE)
+    ui.start()
+    while (not ROBOT_IS_ENABLED):
+        ALLIANCE_COLOR, AUTON_SEQUENCE = ui.get_current_selection()
+        wait(10, MSEC)
+    ui.stop()
 
     # start motor monitor after pre-auton UI is done
-    motor_monitor_thread = Thread(MotorMonitor.motor_monitor_thread)
+    motor_monitor = MotorMonitor(brain, all_motors, all_motor_names)
+    motor_monitor.start()
 
 def drivetrain_max_speeds(motor_speed_rpm, wheel_size_mm, gear_ratio):
     '''
@@ -538,7 +369,7 @@ def drivetrain_max_speeds(motor_speed_rpm, wheel_size_mm, gear_ratio):
 
 def setup_drivetrain():
     drivetrain.set_drive_velocity(5, PERCENT)
-    drivetrain.set_drive_accleration(3, PERCENT)
+    drivetrain.set_drive_acceleration(3, PERCENT)
     drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
     drivetrain.set_drive_threshold(5) # MM
 
@@ -546,7 +377,7 @@ def setup_drivetrain():
     drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
     drivetrain.set_turn_threshold(1) # DEGREES
 
-    drivetrain.set_headling_lock_constants(Kp=4.0)
+    drivetrain.set_heading_lock_constants(Kp=4.0)
 
     drivetrain.set_stopping(BrakeType.BRAKE)
 
@@ -573,9 +404,9 @@ def auto2():
 def auto3(tracker: Tracking):
     print("auto3")
     drivetrain.set_drive_velocity(50, PERCENT)
-    drivetrain.set_drive_accleration(3, PERCENT)
+    drivetrain.set_drive_acceleration(3, PERCENT)
     drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
-    drivetrain.set_headling_lock_constants(5.0)
+    drivetrain.set_heading_lock_constants(5.0)
 
     drivetrain.set_stopping(BrakeType.BRAKE)
 
@@ -596,7 +427,7 @@ def auto4_drive_to_points(tracker: Tracking):
     turn_speed_rev_sec *= (turn_speed / 100)
 
     drivetrain.set_drive_velocity(drive_speed, PERCENT)
-    drivetrain.set_drive_accleration(3, PERCENT)
+    drivetrain.set_drive_acceleration(3, PERCENT)
     drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
     drivetrain.set_drive_threshold(5) # MM
 
@@ -604,7 +435,7 @@ def auto4_drive_to_points(tracker: Tracking):
     drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
     drivetrain.set_turn_threshold(0.5) # DEGREES
 
-    drivetrain.set_headling_lock_constants(Kp=5.0)
+    drivetrain.set_heading_lock_constants(Kp=5.0)
 
     drivetrain.set_stopping(BrakeType.BRAKE)
 
@@ -721,7 +552,7 @@ def auto4_match(tracker: Tracking):
     turn_speed_rev_sec *= (turn_speed / 100)
 
     drivetrain.set_drive_velocity(drive_speed, PERCENT)
-    drivetrain.set_drive_accleration(3, PERCENT)
+    drivetrain.set_drive_acceleration(3, PERCENT)
     drivetrain.set_drive_constants(0.2, Ki=0.002, Kd=1)
     drivetrain.set_drive_threshold(5) # MM
 
@@ -729,7 +560,7 @@ def auto4_match(tracker: Tracking):
     drivetrain.set_turn_constants(Kp=3.0, Ki=0.06, Kd=15.0)
     drivetrain.set_turn_threshold(0.5) # DEGREES
 
-    drivetrain.set_headling_lock_constants(Kp=4.0)
+    drivetrain.set_heading_lock_constants(Kp=4.0)
 
     drivetrain.set_stopping(BrakeType.BRAKE)
 
@@ -1243,6 +1074,65 @@ def auton_skills(tracker: Tracking):
 
         print_tracker(tracker)
 
+def OnLoggerPositionCallback():
+    if tracker is None:
+        raise Exception("tracker not initialized")
+    return tracker.x, tracker.y # type: ignore
+
+def auton_test_turns(tracker: Tracking):
+
+    print("auton_test_turns")
+    brain.screen.print("auton_test_turns")
+    brain.screen.new_line()
+
+    setup_drivetrain()
+    drive_speed = 50 # PERCENT
+    turn_speed = 50 # PERCENT
+    linear_speed_mm_sec, turn_speed_rev_sec = drivetrain_max_speeds(600, DRIVETRAIN_WHEEL_SIZE, DRIVETRAIN_GEAR_RATIO)
+    linear_speed_mm_sec *= (drive_speed / 100)
+    turn_speed_rev_sec *= (turn_speed / 100)
+    drivetrain.set_drive_velocity(drive_speed, PERCENT)
+    drivetrain.set_turn_velocity(turn_speed, PERCENT)
+
+    drivetrain.set_stopping(BrakeType.BRAKE)
+
+    drive_timer = Timer()
+    seq_start_time = drive_timer.time()
+
+    tracker.enable(False)
+    wait(50, MSEC)
+    tracker.set_orientation(Tracking.Orientation(0.0, 0.0, 45.0))
+    wait(50, MSEC)
+    tracker.enable(True)
+    wait(50, MSEC)
+
+    log = Logger(brain,
+                 [left_motor_group, right_motor_group] + all_sensors,
+                 ["lmg", "rmg", "gyro", "fwd", "side"],
+                 ["x", "y"], OnLoggerPositionCallback,
+                 time_sec = 20,
+                 auto_dump = True, file_name = "auton_test_turns"
+                )
+    log.start()
+
+    print_tracker(tracker)
+
+    wait (100, MSEC)
+    drivetrain.turn_to_heading(180, DEGREES)
+
+    wait (500, MSEC)
+
+    print_tracker(tracker)
+    #drivetrain.turn_for(RIGHT, 135, DEGREES)
+
+    #wait (500, MSEC)
+
+    #print_tracker(tracker)
+    log.stop(True)
+
+    print("auton done")
+
+
 def autonomous():
     global ROBOT_IS_ENABLED
     ROBOT_IS_ENABLED = True
@@ -1282,7 +1172,8 @@ def autonomous():
     # auton_match_right(tracker)
 
     if AUTON_SEQUENCE == AutonSequence.SKILLS:
-        auton_skills(tracker)
+        auton_test_turns(tracker)
+        # auton_skills(tracker)
     elif AUTON_SEQUENCE == AutonSequence.MATCH_LEFT:
         auton_match_left(tracker)
     elif AUTON_SEQUENCE == AutonSequence.MATCH_RIGHT:
@@ -1377,17 +1268,21 @@ def OnButtonL2Pressed():
         if (ramp_speed == 0):
             open_trapdoor()
             run_intake(True)
+            run_shooter(False)
         elif (ramp_speed == RAMP_MAX_INTAKE):
             if (not trapdoor_is_open()):
                 open_trapdoor()
+                run_shooter(False)
             else:
                 stop_intake()
+                stop_shooter()
                 close_trapdoor()
         elif ramp_speed == RAMP_MAX_EJECT:
             open_trapdoor()
             stop_intake()
             wait(0.1, SECONDS)
             run_intake(True)
+            run_shooter(False)
 
 # Drive straight enable / disable
 ENABLE_DRIVE_STRAIGHT = False

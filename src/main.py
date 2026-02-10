@@ -1246,10 +1246,16 @@ def OnButtonL1Pressed():
         if ramp_speed == 0:
             run_intake(True)
             run_shooter(True)
-        elif ramp_speed == RAMP_MAX_INTAKE and shooter_speed != 0:
+        elif ramp_speed == RAMP_MAX_INTAKE and shooter_speed == 0:
+            run_intake(True)
+            run_shooter(True)
+        elif ramp_speed == RAMP_MAX_INTAKE and shooter_speed == SHOOTER_MAX_UP:
             stop_intake()
             stop_shooter()
-        elif ramp_speed == RAMP_MAX_INTAKE and shooter_speed == 0:
+        elif ramp_speed == RAMP_MAX_INTAKE and shooter_speed == SHOOTER_MAX_DOWN:
+            stop_intake()
+            stop_shooter()
+            wait(0.1, SECONDS)
             run_intake(True)
             run_shooter(True)
         elif ramp_speed == RAMP_MAX_EJECT:
@@ -1266,11 +1272,16 @@ def OnButtonL2Pressed():
     else:
         stop_shooter()
         if (ramp_speed == 0):
+            run_intake(False)
+            wait(0.25, SECONDS)
             open_trapdoor()
             run_intake(True)
             run_shooter(False)
         elif (ramp_speed == RAMP_MAX_INTAKE):
             if (not trapdoor_is_open()):
+                run_intake(False)
+                wait(0.25, SECONDS)
+                run_intake(True)
                 open_trapdoor()
                 run_shooter(False)
             else:

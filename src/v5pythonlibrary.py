@@ -245,6 +245,22 @@ class Tracking:
         :returns: Tracking.Orientation Tuple
         '''
         return Tracking.Orientation(0.0, 0.0, 0.0)
+    
+    def get_X(self):
+        '''
+        ### Docstring for get_X
+        
+        :returns: X coordinate in MM
+        '''
+        return 0.0
+    
+    def get_Y(self):
+        '''
+        ### Docstring for get_Y
+        
+        :returns: Y coordinate in MM
+        '''
+        return 0.0
 
     def set_orientation(self, orientation: Orientation, ignore_heading=False):
         '''
@@ -632,7 +648,7 @@ class SmartDriveWrapper(SmartDrive):
         '''
         return 0.0
 
-    def drive_to_point(self, x: float, y: float, direction, orientation_callback: Callable, wait = True):
+    def drive_to_point(self, x: float, y: float, direction, orientation_callback: Callable, turn_limit: float = 0.0, wait = True):
         '''
         ### Drive robot to the x/y point in MM specified
 
@@ -650,12 +666,13 @@ class SmartDriveWrapper(SmartDrive):
         :param direction: FOWARD or REVERSE
         :param orientation_callback: Callback function that returns current x,y,heading (in DEGREES) of the robot
         :type orientation_callback: Callable
+        :param turn_limit: Dampens the turning response as robot gets closer to target to prevent overcorrections in heading. MM from target at which turn response trails off
         :param wait: When True (default) the function will wait for the command to complete before returning
         :return: Time for command to complete in MS (if wait=True)
         :rtype: Any | Literal[False]
         '''
         return 0
-
+    
     def drive(self, direction, velocity=None, units:VelocityPercentUnits=VelocityUnits.RPM):
         '''
         ### NOT SUPPORTED
@@ -697,6 +714,18 @@ class SmartDriveWrapper(SmartDrive):
         '''
         pass
 
+    def set_min_drive_velocity(self, velocity, units:VelocityPercentUnits=VelocityUnits.PERCENT):
+        '''
+        ### Set the minimum velocity for drive commands
+
+        This will be the minimum velocity used for subsequent calls to drive commands that use minimum velocity for fast chaining.
+        Currently only drive_to_point() support this.
+
+        :param velocity: The new minimum velocity
+        :param (optional) units: Only PERCENT is supported
+        '''
+        pass
+
     def set_drive_acceleration(self, accel, units:VelocityPercentUnits = VelocityUnits.PERCENT):
         '''
         ### Set default acceleration for drive commands
@@ -711,9 +740,12 @@ class SmartDriveWrapper(SmartDrive):
     def set_turn_velocity(self, velocity, units:VelocityPercentUnits=VelocityUnits.PERCENT):
         '''
         ### Set default velocity for turn commands
-        
+
         This will be the velocity used for subsequent calls to turn if a velocity is not provided
         to that function.
+
+        Note that turn_velocity affects both pure turns (e.g. turn_for()) and turns
+        that occur during drive commands when heading hold is used (drive_straight_for() and drive_to_point())
 
         :param velocity: The new velocity
         :param (optional) units: The units for the supplied velocity, (PERCENT only))
